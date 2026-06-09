@@ -40,6 +40,7 @@ export interface CardDroppedData {
 
 export interface CardUndoneData {
   playerId: string;
+  cards?: Card[];
 }
 
 export interface CardArrangedData {

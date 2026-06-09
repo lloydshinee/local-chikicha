@@ -70,11 +70,14 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
     }, 3000);
   }, []);
 
-  const handleCardUndone = useCallback(() => {
+  const handleCardUndone = useCallback((data: CardUndoneData & { cards?: Card[] }) => {
     playUndo();
     setPile((prev) => prev.slice(0, -1));
     setLastDropIsMine(false);
-  }, []);
+    if (data.cards && data.playerId === socket?.id) {
+      setHand((prev) => [...prev, ...data.cards!]);
+    }
+  }, [socket?.id]);
 
   const handleCardArranged = useCallback((data: CardArrangedData) => {
     if (data.playerId === socket?.id) {
@@ -129,27 +132,10 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault();
         const fromIndex = Array.from(selectedIndices)[0];
-        if (e.key === 'ArrowLeft' && fromIndex > 0) {
-          const toIndex = fromIndex - 1;
-          setHand((prev) => {
-            const next = [...prev];
-            const [card] = next.splice(fromIndex, 1);
-            next.splice(toIndex, 0, card);
-            return next;
-          });
-          setSelectedIndices(new Set([toIndex]));
-          socket?.emit('arrange', { fromIndex, toIndex });
-        } else if (e.key === 'ArrowRight' && fromIndex < hand.length - 1) {
-          const toIndex = fromIndex + 1;
-          setHand((prev) => {
-            const next = [...prev];
-            const [card] = next.splice(fromIndex, 1);
-            next.splice(toIndex, 0, card);
-            return next;
-          });
-          setSelectedIndices(new Set([toIndex]));
-          socket?.emit('arrange', { fromIndex, toIndex });
-        }
+        const toIndex = e.key === 'ArrowLeft' ? fromIndex - 1 : fromIndex + 1;
+        if (toIndex < 0 || toIndex >= hand.length) return;
+        socket?.emit('arrange', { fromIndex, toIndex });
+        setSelectedIndices(new Set([toIndex]));
       }
     };
 
@@ -339,6 +325,9 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
             isSelf
             onCardClick={toggleCard}
           />
+          <div className="text-center mt-2 text-white/40 text-xs">
+            Click a card, then ← → to rearrange
+          </div>
         </div>
       )}
 

@@ -228,7 +228,7 @@ io.on('connection', (socket) => {
     player.cards.push(...lastPileEntry.cards);
     state.lastDropPlayerId = null;
 
-    io.emit('card_undone', { playerId: player.id });
+    io.emit('card_undone', { playerId: player.id, cards: lastPileEntry.cards });
   });
 
   socket.on('arrange', (data: { fromIndex: number; toIndex: number }) => {

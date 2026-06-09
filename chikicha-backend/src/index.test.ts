@@ -170,7 +170,7 @@ function createTestServer() {
       if (!last) return;
       player.cards.push(...last.cards);
       lastDropPlayerId = null;
-      io.emit('card_undone', { playerId: player.id });
+      io.emit('card_undone', { playerId: player.id, cards: last.cards });
     });
 
     socket.on('arrange', (data: { fromIndex: number; toIndex: number }) => {
