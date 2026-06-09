@@ -270,6 +270,7 @@ io.on('connection', (socket) => {
 function checkGameOver() {
   if (state.phase !== 'PLAYING') return;
   const playersWithCards = state.players.filter((p) => p.cards.length > 0);
+  console.log(`[checkGameOver] players with cards: ${playersWithCards.length}/${state.players.length} — ${playersWithCards.map(p => `${p.username}(${p.cards.length})`).join(', ')}`);
   if (playersWithCards.length !== 1) return;
 
   const loser = playersWithCards[0];

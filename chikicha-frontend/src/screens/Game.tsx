@@ -246,11 +246,12 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div className="flex flex-wrap justify-center items-start gap-2 max-w-xl p-4">
           <AnimatePresence>
-            {pile.map((entry, pileIdx) => {
+            {pile.slice(-2).map((entry, pileIdx) => {
+              const globalIdx = pile.length - 2 + pileIdx;
               const ownerColor = opponents.find((o) => o.id === entry.playerId)?.color ?? myColor;
               return (
                 <motion.div
-                  key={pileIdx}
+                  key={globalIdx}
                   initial={{ opacity: 0, scale: 0.5, y: 30 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.5 }}
@@ -261,7 +262,9 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
                     <div
                       key={cardIdx}
                       className="rounded-lg"
-                      style={{ boxShadow: `0 0 0 2px ${ownerColor}` }}
+                      style={{
+                        boxShadow: `0 0 0 4px ${ownerColor}, 0 0 12px ${ownerColor}88`,
+                      }}
                     >
                       <CardComponent card={card} scale={0.6} />
                     </div>
