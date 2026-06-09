@@ -7,7 +7,7 @@ import { CardComponent } from '../components/CardComponent';
 import type {
   Card, GamePlayer, CardDroppedData,
   CardPassedData, CardUndoneData, CardArrangedData,
-  PlayerLeftData, GameOverData
+  PlayerLeftData, GameOverData, TurnChangeData
 } from '../types';
 
 interface Props {
@@ -15,6 +15,7 @@ interface Props {
     hand: Card[];
     players: GamePlayer[];
     myColor: string;
+    currentTurnPlayerId?: string;
   };
   onGameOver: () => void;
   isSpectator?: boolean;
@@ -37,6 +38,8 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
   const [passBubbles, setPassBubbles] = useState<{ id: string; playerId: string }[]>([]);
   const [gameOver, setGameOver] = useState<GameOverData | null>(null);
   const [loserColor, setLoserColor] = useState<string>('');
+  const [currentTurnId, setCurrentTurnId] = useState<string>(initialData.currentTurnPlayerId || '');
+  const isMyTurn = !isSpectator && currentTurnId === socket?.id;
 
   const handleCardDropped = useCallback((data: CardDroppedData) => {
     playDrop();
@@ -68,6 +71,7 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
     setTimeout(() => {
       setPassBubbles((prev) => prev.filter((b) => b.id !== bubbleId));
     }, 3000);
+    setLastDropIsMine(false);
   }, []);
 
   const handleCardUndone = useCallback((data: CardUndoneData & { cards?: Card[] }) => {
@@ -94,14 +98,20 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
     setOpponents((prev) => prev.filter((o) => o.id !== data.playerId));
   }, []);
 
+  const handleTurnChange = useCallback((data: TurnChangeData) => {
+    setCurrentTurnId(data.playerId);
+    setLastDropIsMine(false);
+  }, []);
+
   const handleGameOverEvent = useCallback((data: GameOverData & { loserColor: string }) => {
     playGameOver();
     setGameOver(data);
     setLoserColor(data.loserColor || '');
-    setTimeout(() => {
-      setGameOver(null);
-      onGameOver();
-    }, 5000);
+  }, []);
+
+  const handleLobbyUpdate = useCallback(() => {
+    setGameOver(null);
+    onGameOver();
   }, [onGameOver]);
 
   useEffect(() => {
@@ -112,7 +122,9 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
     socket.on('card_undone', handleCardUndone);
     socket.on('card_arranged', handleCardArranged);
     socket.on('player_left', handlePlayerLeft);
+    socket.on('turn_change', handleTurnChange);
     socket.on('game_over', handleGameOverEvent as any);
+    socket.on('lobby_update', handleLobbyUpdate);
 
     return () => {
       socket.off('card_dropped', handleCardDropped as any);
@@ -120,9 +132,11 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
       socket.off('card_undone', handleCardUndone);
       socket.off('card_arranged', handleCardArranged);
       socket.off('player_left', handlePlayerLeft);
+      socket.off('turn_change', handleTurnChange);
       socket.off('game_over', handleGameOverEvent as any);
+      socket.off('lobby_update', handleLobbyUpdate);
     };
-  }, [socket, handleCardDropped, handleCardPassed, handleCardUndone, handleCardArranged, handlePlayerLeft, handleGameOverEvent]);
+  }, [socket, handleCardDropped, handleCardPassed, handleCardUndone, handleCardArranged, handlePlayerLeft, handleTurnChange, handleGameOverEvent, handleLobbyUpdate]);
 
   // Arrow key handler for card arrangement
   useEffect(() => {
@@ -156,13 +170,13 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
   };
 
   const handleDrop = () => {
-    if (selectedIndices.size === 0 || !socket) return;
+    if (selectedIndices.size === 0 || !socket || !isMyTurn) return;
     const indices = Array.from(selectedIndices);
     socket.emit('drop', { cardIndices: indices });
   };
 
   const handlePass = () => {
-    if (!socket) return;
+    if (!socket || !isMyTurn) return;
     socket.emit('pass');
   };
 
@@ -185,6 +199,9 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
     }
   };
 
+  const turnPlayer = opponents.find((o) => o.id === currentTurnId);
+  const turnPlayerIsMe = currentTurnId === socket?.id;
+
   return (
     <div className="min-h-screen bg-green-700 relative overflow-hidden">
       {/* Green felt pattern */}
@@ -198,6 +215,22 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
           backgroundSize: '100% 100%, 100% 100%, 16px 16px',
         }}
       />
+
+      {/* Turn indicator */}
+      <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10">
+        <div className="bg-black/40 text-white text-sm px-4 py-1 rounded-full">
+          {turnPlayerIsMe ? (
+            <span className="font-bold">&#9654; Your turn</span>
+          ) : turnPlayer ? (
+            <span>
+              <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: turnPlayer.color }} />
+              {turnPlayer.username}'s turn
+            </span>
+          ) : (
+            <span>Waiting...</span>
+          )}
+        </div>
+      </div>
 
       {/* Pass bubbles */}
       {passBubbles.map((bubble) => {
@@ -224,9 +257,12 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
       <div className="absolute inset-0 pointer-events-none">
         {opponents.map((opp, i) => {
           const pos = getOpponentPosition(i);
+          const isTurn = opp.id === currentTurnId;
           return (
             <div key={opp.id} className={`absolute ${getOpponentStyles(pos)} flex items-center gap-2`}>
-              <div className="text-white text-xs font-semibold bg-black/30 px-2 py-1 rounded whitespace-nowrap">
+              <div className={`text-white text-xs font-semibold px-2 py-1 rounded whitespace-nowrap transition-colors ${
+                isTurn ? 'bg-yellow-500/60 ring-2 ring-yellow-400' : 'bg-black/30'
+              }`}>
                 <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: opp.color }} />
                 {opp.username}
               </div>
@@ -290,34 +326,44 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
 
       {/* Self hand */}
       {isSpectator ? (
-        isSpectator && opponents.length > 0 && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none">
-            <div className="text-white text-xs font-semibold bg-black/30 px-2 py-1 rounded text-center">
-              Spectating
-            </div>
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none">
+          <div className="text-white text-xs font-semibold bg-black/30 px-2 py-1 rounded text-center">
+            Spectating
           </div>
-        )
+        </div>
       ) : (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-white text-xs font-semibold bg-black/30 px-2 py-1 rounded">
+            <div className={`text-white text-xs font-semibold px-2 py-1 rounded transition-colors ${
+              isMyTurn ? 'bg-yellow-500/60 ring-2 ring-yellow-400' : 'bg-black/30'
+            }`}>
               <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: myColor }} />
               You ({hand.length} cards)
+              {isMyTurn && ' — Your turn'}
             </div>
             <div className="flex gap-2 ml-4">
-              <button
-                onClick={handlePass}
-                className="px-3 py-1.5 bg-gray-500 hover:bg-gray-400 text-white text-sm font-bold rounded-lg transition-colors"
-              >
-                Pass
-              </button>
-              {selectedIndices.size > 0 && (
-                <button
-                  onClick={handleDrop}
-                  className="px-4 py-1.5 bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-bold rounded-lg transition-colors"
-                >
-                  Drop ({selectedIndices.size})
-                </button>
+              {isMyTurn && (
+                <>
+                  <button
+                    onClick={handlePass}
+                    className="px-3 py-1.5 bg-gray-500 hover:bg-gray-400 text-white text-sm font-bold rounded-lg transition-colors"
+                  >
+                    Pass
+                  </button>
+                  {selectedIndices.size > 0 && (
+                    <button
+                      onClick={handleDrop}
+                      className="px-4 py-1.5 bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-bold rounded-lg transition-colors"
+                    >
+                      Drop ({selectedIndices.size})
+                    </button>
+                  )}
+                </>
+              )}
+              {!isMyTurn && (
+                <span className="text-white/50 text-xs px-3 py-1.5">
+                  {turnPlayer ? `Waiting for ${turnPlayerIsMe ? 'you' : turnPlayer.username}...` : 'Waiting...'}
+                </span>
               )}
             </div>
           </div>

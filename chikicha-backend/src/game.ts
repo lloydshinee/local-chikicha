@@ -28,6 +28,7 @@ export interface GameState {
   lastDropPlayerId: string | null;
   countdownTimer: ReturnType<typeof setTimeout> | null;
   gameOverTimer: ReturnType<typeof setTimeout> | null;
+  currentTurnIndex: number;
 }
 
 export const PLAYER_COLORS = ['#EF4444', '#3B82F6', '#22C55E', '#EAB308'];

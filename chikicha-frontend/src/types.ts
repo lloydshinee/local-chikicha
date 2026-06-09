@@ -31,6 +31,13 @@ export interface GamePlayer {
 export interface GameStartData {
   hand: Card[];
   players: GamePlayer[];
+  currentTurnPlayerId?: string;
+}
+
+export interface SpectateData {
+  players: GamePlayer[];
+  pile: { playerId: string; cards: Card[] }[];
+  currentTurnPlayerId?: string;
 }
 
 export interface CardDroppedData {
@@ -65,6 +72,10 @@ export interface GameOverData {
 
 export interface CountdownData {
   seconds: number;
+}
+
+export interface TurnChangeData {
+  playerId: string;
 }
 
 export function cardImagePath(card: Card): string {

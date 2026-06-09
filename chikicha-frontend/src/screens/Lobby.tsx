@@ -8,11 +8,13 @@ interface GameData {
   hand: Card[];
   players: GamePlayer[];
   myColor: string;
+  currentTurnPlayerId?: string;
 }
 
 interface SpectateData {
   players: GamePlayer[];
   pile: { playerId: string; cards: Card[] }[];
+  currentTurnPlayerId?: string;
 }
 
 interface Props {
@@ -29,13 +31,14 @@ export function Lobby({ username, onGameStart, onSpectate }: Props) {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [amSpectator, setAmSpectator] = useState(false);
 
-  const handleGameStartEvent = useCallback((data: { hand: Card[]; players: GamePlayer[] }) => {
+  const handleGameStartEvent = useCallback((data: { hand: Card[]; players: GamePlayer[]; currentTurnPlayerId?: string }) => {
     const myPlayer = lobby.players.find((p) => p.id === socket?.id);
     setCountdown(null);
     onGameStart({
       hand: data.hand,
       players: data.players,
       myColor: myPlayer?.color ?? '',
+      currentTurnPlayerId: data.currentTurnPlayerId,
     });
   }, [socket, lobby.players, onGameStart]);
 
@@ -45,6 +48,9 @@ export function Lobby({ username, onGameStart, onSpectate }: Props) {
 
   useEffect(() => {
     if (!socket) return;
+
+    // Request current lobby state on mount (important after game over)
+    socket.emit('request_lobby');
 
     const handleLobbyUpdate = (data: LobbyUpdateData) => {
       setLobby(data);

@@ -5,17 +5,19 @@ import { Lobby } from './screens/Lobby';
 import { Game } from './screens/Game';
 import type { Card, GamePlayer } from './types';
 
-type Screen = 'username' | 'lobby' | 'game' | 'spectating' | 'gameover';
+type Screen = 'username' | 'lobby' | 'game' | 'spectating';
 
 interface GameData {
   hand: Card[];
   players: GamePlayer[];
   myColor: string;
+  currentTurnPlayerId?: string;
 }
 
 interface SpectateData {
   players: GamePlayer[];
   pile: { playerId: string; cards: Card[] }[];
+  currentTurnPlayerId?: string;
 }
 
 function AppContent() {
@@ -66,9 +68,14 @@ function AppContent() {
           isSpectator={false}
         />
       )}
-      {screen === 'spectating' && (
+      {screen === 'spectating' && spectateData && (
         <Game
-          initialData={{ hand: [], players: spectateData?.players || [], myColor: '' }}
+          initialData={{
+            hand: [],
+            players: spectateData.players,
+            myColor: '',
+            currentTurnPlayerId: spectateData.currentTurnPlayerId,
+          }}
           onGameOver={handleGameOver}
           isSpectator
         />

@@ -23,6 +23,7 @@ const state: GameState = {
   lastDropPlayerId: null,
   countdownTimer: null,
   gameOverTimer: null,
+  currentTurnIndex: 0,
 };
 
 function broadcastLobbyUpdate() {
@@ -37,6 +38,40 @@ function broadcastLobbyUpdate() {
       id: s.id,
       username: s.username,
     })),
+  });
+}
+
+function sendLobbyToSocket(socketId: string) {
+  const socket = io.sockets.sockets.get(socketId);
+  if (socket) {
+    socket.emit('lobby_update', {
+      players: state.players.map((p) => ({
+        id: p.id,
+        username: p.username,
+        color: p.color,
+        ready: p.ready,
+      })),
+      spectators: state.spectators.map((s) => ({
+        id: s.id,
+        username: s.username,
+      })),
+    });
+  }
+}
+
+function findThreeOfDiamonds(players: typeof state.players): number {
+  for (let i = 0; i < players.length; i++) {
+    if (players[i].cards.some((c) => c.suit === 'diamonds' && c.rank === '3')) {
+      return i;
+    }
+  }
+  return Math.floor(Math.random() * players.length);
+}
+
+function advanceTurn() {
+  state.currentTurnIndex = (state.currentTurnIndex + 1) % state.players.length;
+  io.emit('turn_change', {
+    playerId: state.players[state.currentTurnIndex].id,
   });
 }
 
@@ -64,6 +99,10 @@ function startCountdown() {
         player.cards = hands[i];
       });
 
+      state.currentTurnIndex = findThreeOfDiamonds(state.players);
+
+      const currentTurnPlayerId = state.players[state.currentTurnIndex].id;
+
       state.players.forEach((player) => {
         const opponentData = state.players
           .filter((p) => p.id !== player.id)
@@ -71,17 +110,16 @@ function startCountdown() {
             id: p.id,
             username: p.username,
             color: p.color,
-            position: '', // assigned client-side
             cardCount: p.cards.length,
           }));
 
         io.to(player.id).emit('game_start', {
           hand: player.cards,
           players: opponentData,
+          currentTurnPlayerId,
         });
       });
 
-      // Send spectate to spectators
       if (state.spectators.length > 0) {
         const playerData = state.players.map((p) => ({
           id: p.id,
@@ -92,6 +130,7 @@ function startCountdown() {
         io.emit('spectate', {
           players: playerData,
           pile: state.pile,
+          currentTurnPlayerId,
         });
       }
     }
@@ -110,6 +149,10 @@ function abortCountdown() {
 
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
+
+  socket.on('request_lobby', () => {
+    sendLobbyToSocket(socket.id);
+  });
 
   socket.on('join', (data: { username: string }) => {
     const username = data.username?.trim();
@@ -134,8 +177,7 @@ io.on('connection', (socket) => {
       });
       console.log(`Spectator joined: ${username}`);
 
-      // If game is in progress, send current state
-      if (state.phase === 'PLAYING') {
+      if (state.phase === 'PLAYING' || state.phase === 'GAME_OVER') {
         socket.emit('spectate', {
           players: state.players.map((p) => ({
             id: p.id,
@@ -144,6 +186,9 @@ io.on('connection', (socket) => {
             cardCount: p.cards.length,
           })),
           pile: state.pile,
+          currentTurnPlayerId: state.phase === 'PLAYING'
+            ? state.players[state.currentTurnIndex]?.id
+            : undefined,
         });
       }
     }
@@ -178,6 +223,8 @@ io.on('connection', (socket) => {
     const player = state.players.find((p) => p.id === socket.id);
     if (!player) return;
 
+    if (player.id !== state.players[state.currentTurnIndex].id) return;
+
     const indices = data.cardIndices;
     if (!indices || indices.length === 0) return;
 
@@ -206,14 +253,20 @@ io.on('connection', (socket) => {
       cards: validCards,
     });
 
-    checkGameOver();
+    if (!checkGameOver()) {
+      advanceTurn();
+    }
   });
 
   socket.on('pass', () => {
     if (state.phase !== 'PLAYING') return;
     const player = state.players.find((p) => p.id === socket.id);
     if (!player) return;
+
+    if (player.id !== state.players[state.currentTurnIndex].id) return;
+
     io.emit('card_passed', { playerId: player.id });
+    advanceTurn();
   });
 
   socket.on('undo', () => {
@@ -255,23 +308,38 @@ io.on('connection', (socket) => {
 
     const isPlaying = state.phase === 'PLAYING' && !!player;
 
-    state.players = state.players.filter((p) => p.id !== socket.id);
-    state.spectators = state.spectators.filter((s) => s.id !== socket.id);
+    if (player && state.phase === 'PLAYING') {
+      const removedIndex = state.players.findIndex((p) => p.id === socket.id);
+      state.players = state.players.filter((p) => p.id !== socket.id);
+      state.spectators = state.spectators.filter((s) => s.id !== socket.id);
 
-    if (state.phase === 'LOBBY') {
-      broadcastLobbyUpdate();
-    } else if (isPlaying) {
+      if (removedIndex <= state.currentTurnIndex && state.players.length > 0) {
+        state.currentTurnIndex = Math.max(0, state.currentTurnIndex - 1);
+        if (state.currentTurnIndex >= state.players.length) {
+          state.currentTurnIndex = 0;
+        }
+        io.emit('turn_change', {
+          playerId: state.players[state.currentTurnIndex].id,
+        });
+      }
+
       io.emit('player_left', { playerId: socket.id });
       checkGameOver();
+    } else {
+      state.players = state.players.filter((p) => p.id !== socket.id);
+      state.spectators = state.spectators.filter((s) => s.id !== socket.id);
+      if (state.phase === 'LOBBY') {
+        broadcastLobbyUpdate();
+      }
     }
   });
 });
 
-function checkGameOver() {
-  if (state.phase !== 'PLAYING') return;
+function checkGameOver(): boolean {
+  if (state.phase !== 'PLAYING') return false;
   const playersWithCards = state.players.filter((p) => p.cards.length > 0);
   console.log(`[checkGameOver] players with cards: ${playersWithCards.length}/${state.players.length} — ${playersWithCards.map(p => `${p.username}(${p.cards.length})`).join(', ')}`);
-  if (playersWithCards.length !== 1) return;
+  if (playersWithCards.length !== 1) return false;
 
   const loser = playersWithCards[0];
   state.phase = 'GAME_OVER';
@@ -292,9 +360,11 @@ function checkGameOver() {
     });
     state.pile = [];
     state.lastDropPlayerId = null;
+    state.currentTurnIndex = 0;
     state.gameOverTimer = null;
     broadcastLobbyUpdate();
   }, 5000);
+  return true;
 }
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
