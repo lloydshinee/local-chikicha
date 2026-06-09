@@ -1,8 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSocket } from '../hooks/useSocket';
 import { PlayerHand } from '../components/PlayerHand';
 import { CardComponent } from '../components/CardComponent';
-import type { Card, GamePlayer, CardDroppedData, CardPassedData, CardUndoneData } from '../types';
+import type {
+  Card, GamePlayer, CardDroppedData,
+  CardPassedData, CardUndoneData, CardArrangedData,
+  PlayerLeftData, GameOverData
+} from '../types';
 
 interface Props {
   initialData: {
@@ -27,6 +31,8 @@ export function Game({ initialData, onGameOver }: Props) {
   const [pile, setPile] = useState<PileEntry[]>([]);
   const [lastDropIsMine, setLastDropIsMine] = useState(false);
   const [passBubbles, setPassBubbles] = useState<{ id: string; playerId: string }[]>([]);
+  const [gameOver, setGameOver] = useState<GameOverData | null>(null);
+  const [loserColor, setLoserColor] = useState<string>('');
 
   const handleCardDropped = useCallback((data: CardDroppedData) => {
     setPile((prev) => [...prev, { playerId: data.playerId, cards: data.cards }]);
@@ -58,10 +64,34 @@ export function Game({ initialData, onGameOver }: Props) {
     }, 3000);
   }, []);
 
-  const handleCardUndone = useCallback((data: CardUndoneData) => {
-    setPile((prev) => prev.filter((_, i) => i !== prev.length - 1));
+  const handleCardUndone = useCallback(() => {
+    setPile((prev) => prev.slice(0, -1));
     setLastDropIsMine(false);
   }, []);
+
+  const handleCardArranged = useCallback((data: CardArrangedData) => {
+    if (data.playerId === socket?.id) {
+      setHand((prev) => {
+        const next = [...prev];
+        const [card] = next.splice(data.fromIndex, 1);
+        next.splice(data.toIndex, 0, card);
+        return next;
+      });
+    }
+  }, [socket?.id]);
+
+  const handlePlayerLeft = useCallback((data: PlayerLeftData) => {
+    setOpponents((prev) => prev.filter((o) => o.id !== data.playerId));
+  }, []);
+
+  const handleGameOverEvent = useCallback((data: GameOverData & { loserColor: string }) => {
+    setGameOver(data);
+    setLoserColor(data.loserColor || '');
+    setTimeout(() => {
+      setGameOver(null);
+      onGameOver();
+    }, 5000);
+  }, [onGameOver]);
 
   useEffect(() => {
     if (!socket) return;
@@ -69,13 +99,55 @@ export function Game({ initialData, onGameOver }: Props) {
     socket.on('card_dropped', handleCardDropped as any);
     socket.on('card_passed', handleCardPassed);
     socket.on('card_undone', handleCardUndone);
+    socket.on('card_arranged', handleCardArranged);
+    socket.on('player_left', handlePlayerLeft);
+    socket.on('game_over', handleGameOverEvent as any);
 
     return () => {
       socket.off('card_dropped', handleCardDropped as any);
       socket.off('card_passed', handleCardPassed);
       socket.off('card_undone', handleCardUndone);
+      socket.off('card_arranged', handleCardArranged);
+      socket.off('player_left', handlePlayerLeft);
+      socket.off('game_over', handleGameOverEvent as any);
     };
-  }, [socket, handleCardDropped, handleCardPassed, handleCardUndone]);
+  }, [socket, handleCardDropped, handleCardPassed, handleCardUndone, handleCardArranged, handlePlayerLeft, handleGameOverEvent]);
+
+  // Arrow key handler for card arrangement
+  useEffect(() => {
+    if (selectedIndices.size !== 1) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const fromIndex = Array.from(selectedIndices)[0];
+        if (e.key === 'ArrowLeft' && fromIndex > 0) {
+          const toIndex = fromIndex - 1;
+          setHand((prev) => {
+            const next = [...prev];
+            const [card] = next.splice(fromIndex, 1);
+            next.splice(toIndex, 0, card);
+            return next;
+          });
+          setSelectedIndices(new Set([toIndex]));
+          socket?.emit('arrange', { fromIndex, toIndex });
+        } else if (e.key === 'ArrowRight' && fromIndex < hand.length - 1) {
+          const toIndex = fromIndex + 1;
+          setHand((prev) => {
+            const next = [...prev];
+            const [card] = next.splice(fromIndex, 1);
+            next.splice(toIndex, 0, card);
+            return next;
+          });
+          setSelectedIndices(new Set([toIndex]));
+          socket?.emit('arrange', { fromIndex, toIndex });
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedIndices, hand.length, socket]);
 
   const toggleCard = (index: number) => {
     setSelectedIndices((prev) => {
@@ -103,7 +175,6 @@ export function Game({ initialData, onGameOver }: Props) {
   const handleUndo = () => {
     if (!socket) return;
     socket.emit('undo');
-    // Optimistic update: the server will confirm via card_undone
   };
 
   const getOpponentPosition = (index: number): 'top' | 'left' | 'right' => {
@@ -136,7 +207,7 @@ export function Game({ initialData, onGameOver }: Props) {
         return (
           <div
             key={bubble.id}
-            className={`absolute z-50 pointer-events-none transition-opacity duration-500 ${
+            className={`absolute z-50 pointer-events-none ${
               isMine ? 'bottom-40 left-1/2 -translate-x-1/2' : 'top-16 left-1/2 -translate-x-1/2'
             }`}
           >
@@ -238,6 +309,26 @@ export function Game({ initialData, onGameOver }: Props) {
           onCardClick={toggleCard}
         />
       </div>
+
+      {/* Game Over overlay */}
+      {gameOver && (
+        <div className="fixed inset-0 bg-black/70 flex flex-col items-center justify-center z-50">
+          <div className="text-6xl font-bold text-white mb-4 animate-bounce">
+            Loser: {gameOver.loserUsername}
+          </div>
+          {loserColor && (
+            <div className="text-sm text-white/70 mb-6">
+              <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ backgroundColor: loserColor }} />
+            </div>
+          )}
+          <div className="flex gap-1 mb-6">
+            {gameOver.cards.map((card, i) => (
+              <CardComponent key={i} card={card} scale={0.6} />
+            ))}
+          </div>
+          <div className="text-white/50 text-sm">Returning to lobby...</div>
+        </div>
+      )}
     </div>
   );
 }

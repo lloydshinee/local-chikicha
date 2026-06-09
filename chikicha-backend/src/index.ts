@@ -178,6 +178,8 @@ io.on('connection', (socket) => {
       playerId: player.id,
       cards: validCards,
     });
+
+    checkGameOver();
   });
 
   socket.on('pass', () => {
@@ -202,17 +204,70 @@ io.on('connection', (socket) => {
     io.emit('card_undone', { playerId: player.id });
   });
 
+  socket.on('arrange', (data: { fromIndex: number; toIndex: number }) => {
+    if (state.phase !== 'PLAYING') return;
+    const player = state.players.find((p) => p.id === socket.id);
+    if (!player) return;
+
+    const { fromIndex, toIndex } = data;
+    if (fromIndex < 0 || fromIndex >= player.cards.length) return;
+    if (toIndex < 0 || toIndex >= player.cards.length) return;
+    if (fromIndex === toIndex) return;
+
+    const [card] = player.cards.splice(fromIndex, 1);
+    player.cards.splice(toIndex, 0, card);
+
+    io.emit('card_arranged', { playerId: player.id, fromIndex, toIndex });
+  });
+
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
+
+    const player = state.players.find((p) => p.id === socket.id);
+    const wasSpectator = state.spectators.find((s) => s.id === socket.id);
+
+    const isPlaying = state.phase === 'PLAYING' && !!player;
 
     state.players = state.players.filter((p) => p.id !== socket.id);
     state.spectators = state.spectators.filter((s) => s.id !== socket.id);
 
     if (state.phase === 'LOBBY') {
       broadcastLobbyUpdate();
+    } else if (isPlaying) {
+      io.emit('player_left', { playerId: socket.id });
+      checkGameOver();
     }
   });
 });
+
+function checkGameOver() {
+  if (state.phase !== 'PLAYING') return;
+  const playersWithCards = state.players.filter((p) => p.cards.length > 0);
+  if (playersWithCards.length !== 1) return;
+
+  const loser = playersWithCards[0];
+  state.phase = 'GAME_OVER';
+
+  io.emit('game_over', {
+    loserId: loser.id,
+    loserUsername: loser.username,
+    cards: loser.cards,
+    loserColor: loser.color,
+  });
+
+  if (state.gameOverTimer) clearTimeout(state.gameOverTimer);
+  state.gameOverTimer = setTimeout(() => {
+    state.phase = 'LOBBY';
+    state.players.forEach((p) => {
+      p.cards = [];
+      p.ready = false;
+    });
+    state.pile = [];
+    state.lastDropPlayerId = null;
+    state.gameOverTimer = null;
+    broadcastLobbyUpdate();
+  }, 5000);
+}
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 

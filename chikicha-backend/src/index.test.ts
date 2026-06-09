@@ -77,6 +77,33 @@ function createTestServer() {
     }
   }
 
+  function checkGameOver() {
+    if (phase !== 'PLAYING') return;
+    const withCards = players.filter((p) => p.cards.length > 0);
+    if (withCards.length !== 1) return;
+
+    const loser = withCards[0];
+    phase = 'GAME_OVER';
+
+    io.emit('game_over', {
+      loserId: loser.id,
+      loserUsername: loser.username,
+      cards: loser.cards,
+      loserColor: loser.color,
+    });
+
+    setTimeout(() => {
+      phase = 'LOBBY';
+      players.forEach((p) => {
+        p.cards = [];
+        p.ready = false;
+      });
+      pile.length = 0;
+      lastDropPlayerId = null;
+      broadcastLobby();
+    }, 5000);
+  }
+
   io.on('connection', (socket) => {
     socket.on('join', (data: { username: string }) => {
       const username = data.username?.trim();
@@ -125,6 +152,7 @@ function createTestServer() {
       pile.push({ playerId: player.id, cards: dropped as any[] });
       lastDropPlayerId = player.id;
       io.emit('card_dropped', { playerId: player.id, cards: dropped });
+      checkGameOver();
     });
 
     socket.on('pass', () => {
@@ -146,15 +174,32 @@ function createTestServer() {
     });
 
     socket.on('arrange', (data: { fromIndex: number; toIndex: number }) => {
-      // placeholder - implemented in issue #8
+      if (phase !== 'PLAYING') return;
+      const player = players.find((p) => p.id === socket.id);
+      if (!player) return;
+      const { fromIndex, toIndex } = data;
+      if (fromIndex < 0 || fromIndex >= player.cards.length) return;
+      if (toIndex < 0 || toIndex >= player.cards.length) return;
+      const [card] = player.cards.splice(fromIndex, 1);
+      player.cards.splice(toIndex, 0, card);
+      io.emit('card_arranged', { playerId: player.id, fromIndex, toIndex });
     });
 
     socket.on('disconnect', () => {
+      const player = players.find((p) => p.id === socket.id);
       const pi = players.findIndex((p) => p.id === socket.id);
       const si = spectators.findIndex((s) => s.id === socket.id);
+      const wasPlaying = phase === 'PLAYING' && !!player;
+
       if (pi !== -1) players.splice(pi, 1);
       if (si !== -1) spectators.splice(si, 1);
-      broadcastLobby();
+
+      if (phase === 'LOBBY') {
+        broadcastLobby();
+      } else if (wasPlaying) {
+        io.emit('player_left', { playerId: socket.id });
+        checkGameOver();
+      }
     });
   });
 
@@ -504,6 +549,45 @@ describe('gameplay: drop', () => {
 
     sockets.forEach((s) => s.disconnect());
   }, 8000);
+
+  it('arranges cards via arrow keys equivalent', async () => {
+    const sockets = await setupGame();
+
+    const arrangePromise = new Promise<any>((resolve) => {
+      sockets[0].on('card_arranged', resolve);
+    });
+
+    sockets[0].emit('arrange', { fromIndex: 0, toIndex: 1 });
+    const data = await arrangePromise;
+    expect(data.playerId).toBe(sockets[0].id);
+    expect(data.fromIndex).toBe(0);
+    expect(data.toIndex).toBe(1);
+
+    sockets.forEach((s) => s.disconnect());
+  }, 8000);
+
+  it('emits game_over when last player has cards', async () => {
+    const sockets = await setupGame();
+
+    const gameOverPromise = new Promise<any>((resolve) => {
+      sockets[0].on('game_over', resolve);
+    });
+
+    // Drop all cards for 3 players, leaving 1 with cards
+    // Each player has 13 cards - drop 13 for sockets 1,2,3
+    for (let slot = 1; slot <= 3; slot++) {
+      for (let batch = 0; batch < 13; batch++) {
+        sockets[slot].emit('drop', { cardIndices: [0] });
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    }
+
+    // Now only socket[0] has cards
+    const gameOver = await gameOverPromise;
+    expect(gameOver.loserId).toBe(sockets[0].id);
+
+    sockets.forEach((s) => s.disconnect());
+  }, 15000);
 });
 
 function colors() {

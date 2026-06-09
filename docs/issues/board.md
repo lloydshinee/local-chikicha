@@ -11,9 +11,9 @@ Triage vocabulary: `ready-for-agent` (can be worked), `in-progress`, `done`
 | 5 | Card selection & drop to central area | AFK | done | 4 |
 | 6 | Pass with emote bubble | AFK | done | 4 |
 | 7 | Undo mechanic | AFK | done | 5 |
-| 8 | Hand arrangement via arrow keys | AFK | ready-for-agent | 4 |
-| 9 | Disconnect handling | AFK | ready-for-agent | 4 |
-| 10 | Game over: loser reveal & lobby reset | AFK | ready-for-agent | 5, 6 |
+| 8 | Hand arrangement via arrow keys | AFK | done | 4 |
+| 9 | Disconnect handling | AFK | done | 4 |
+| 10 | Game over: loser reveal & lobby reset | AFK | done | 5, 6 |
 | 11 | Spectator flow | AFK | ready-for-agent | 2, 4, 10 |
 | 12 | Sound effects | AFK | ready-for-agent | 5, 6, 7, 10 |
 | 13 | Visual polish & poker table layout | HITL | ready-for-agent | 1–12 |
