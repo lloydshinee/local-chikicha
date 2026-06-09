@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import cors from 'cors';
 import { Server } from 'socket.io';
 import { GameState, PLAYER_COLORS, MAX_PLAYERS, createDeck, shuffleDeck, dealCards } from './game';
+import { detectCombo, canBeat, hasThreeOfDiamonds } from './rules';
 
 const app = express();
 app.use(cors());
@@ -20,10 +21,13 @@ const state: GameState = {
   players: [],
   spectators: [],
   pile: [],
-  lastDropPlayerId: null,
   countdownTimer: null,
   gameOverTimer: null,
   currentTurnIndex: 0,
+  currentTopCombo: null,
+  passCount: 0,
+  firstPlayMade: false,
+  finishOrder: [],
 };
 
 function broadcastLobbyUpdate() {
@@ -68,10 +72,27 @@ function findThreeOfDiamonds(players: typeof state.players): number {
   return Math.floor(Math.random() * players.length);
 }
 
+function getActivePlayers(): typeof state.players {
+  return state.players.filter((p) => p.cards.length > 0);
+}
+
 function advanceTurn() {
-  state.currentTurnIndex = (state.currentTurnIndex + 1) % state.players.length;
+  const active = getActivePlayers();
+  if (active.length === 0) return;
+
+  const currentPlayerId = state.players[state.currentTurnIndex]?.id;
+  const currentIdx = active.findIndex((p) => p.id === currentPlayerId);
+  const nextIdx = (currentIdx + 1) % active.length;
+  const nextPlayer = active[nextIdx];
+  state.currentTurnIndex = state.players.findIndex((p) => p.id === nextPlayer.id);
+
+  const isNewRound = state.currentTopCombo === null;
   io.emit('turn_change', {
-    playerId: state.players[state.currentTurnIndex].id,
+    playerId: nextPlayer.id,
+    isNewRound,
+    currentCombo: state.currentTopCombo
+      ? { type: state.currentTopCombo.type, primaryRank: state.currentTopCombo.primaryRank, primarySuit: state.currentTopCombo.primarySuit }
+      : null,
   });
 }
 
@@ -91,7 +112,10 @@ function startCountdown() {
       state.countdownTimer = null;
       state.phase = 'PLAYING';
       state.pile = [];
-      state.lastDropPlayerId = null;
+      state.currentTopCombo = null;
+      state.passCount = 0;
+      state.firstPlayMade = false;
+      state.finishOrder = [];
 
       const deck = shuffleDeck(createDeck());
       const hands = dealCards(deck, state.players.length);
@@ -223,7 +247,7 @@ io.on('connection', (socket) => {
     const player = state.players.find((p) => p.id === socket.id);
     if (!player) return;
 
-    if (player.id !== state.players[state.currentTurnIndex].id) return;
+    if (player.id !== state.players[state.currentTurnIndex]?.id) return;
 
     const indices = data.cardIndices;
     if (!indices || indices.length === 0) return;
@@ -238,6 +262,15 @@ io.on('connection', (socket) => {
 
     const validCards = droppedCards as NonNullable<typeof droppedCards[0]>[];
 
+    const combo = detectCombo(validCards);
+    if (!combo) return;
+
+    if (!state.firstPlayMade) {
+      if (!hasThreeOfDiamonds(validCards)) return;
+    }
+
+    if (state.currentTopCombo && !canBeat(combo, state.currentTopCombo)) return;
+
     sortedIndices.forEach((i) => {
       player.cards.splice(i, 1);
     });
@@ -246,12 +279,27 @@ io.on('connection', (socket) => {
       playerId: player.id,
       cards: validCards,
     });
-    state.lastDropPlayerId = player.id;
+    state.currentTopCombo = combo;
+    state.passCount = 0;
+
+    const wasFirstPlay = !state.firstPlayMade;
+    state.firstPlayMade = true;
 
     io.emit('card_dropped', {
       playerId: player.id,
       cards: validCards,
+      comboType: combo.type,
+      isFirstPlay: wasFirstPlay,
     });
+
+    if (player.cards.length === 0) {
+      state.finishOrder.push({
+        position: state.finishOrder.length + 1,
+        playerId: player.id,
+        username: player.username,
+        color: player.color,
+      });
+    }
 
     if (!checkGameOver()) {
       advanceTurn();
@@ -263,32 +311,18 @@ io.on('connection', (socket) => {
     const player = state.players.find((p) => p.id === socket.id);
     if (!player) return;
 
-    if (player.id !== state.players[state.currentTurnIndex].id) return;
+    if (player.id !== state.players[state.currentTurnIndex]?.id) return;
+
+    state.passCount++;
+
+    const activePlayers = getActivePlayers().length;
+    if (state.passCount >= activePlayers - 1) {
+      state.currentTopCombo = null;
+      state.passCount = 0;
+    }
 
     io.emit('card_passed', { playerId: player.id });
     advanceTurn();
-  });
-
-  socket.on('undo', () => {
-    if (state.phase !== 'PLAYING') return;
-    const player = state.players.find((p) => p.id === socket.id);
-    if (!player) return;
-    if (state.lastDropPlayerId !== player.id) return;
-
-    const lastPileEntry = state.pile.pop();
-    if (!lastPileEntry) return;
-
-    player.cards.push(...lastPileEntry.cards);
-    state.lastDropPlayerId = null;
-
-    // Return turn to the player who undid
-    const playerIdx = state.players.findIndex((p) => p.id === player.id);
-    if (playerIdx !== -1) {
-      state.currentTurnIndex = playerIdx;
-      io.emit('turn_change', { playerId: player.id });
-    }
-
-    io.emit('card_undone', { playerId: player.id, cards: lastPileEntry.cards });
   });
 
   socket.on('arrange', (data: { fromIndex: number; toIndex: number }) => {
@@ -317,16 +351,37 @@ io.on('connection', (socket) => {
 
     if (player && state.phase === 'PLAYING') {
       const removedIndex = state.players.findIndex((p) => p.id === socket.id);
+      const removedPlayer = state.players[removedIndex];
+
+      if (removedPlayer && removedPlayer.cards.length > 0) {
+        state.finishOrder.push({
+          position: state.finishOrder.length + 1,
+          playerId: removedPlayer.id,
+          username: removedPlayer.username,
+          color: removedPlayer.color,
+        });
+      }
+
       state.players = state.players.filter((p) => p.id !== socket.id);
       state.spectators = state.spectators.filter((s) => s.id !== socket.id);
 
-      if (removedIndex <= state.currentTurnIndex && state.players.length > 0) {
-        state.currentTurnIndex = Math.max(0, state.currentTurnIndex - 1);
+      if (state.players.length > 0) {
+        const active = getActivePlayers();
+        if (active.length > 0) {
+          state.currentTurnIndex = state.players.findIndex((p) => p.id === active[0].id);
+        } else {
+          state.currentTurnIndex = 0;
+        }
         if (state.currentTurnIndex >= state.players.length) {
           state.currentTurnIndex = 0;
         }
+        const isNewRound = state.currentTopCombo === null;
         io.emit('turn_change', {
           playerId: state.players[state.currentTurnIndex].id,
+          isNewRound,
+          currentCombo: state.currentTopCombo
+            ? { type: state.currentTopCombo.type, primaryRank: state.currentTopCombo.primaryRank, primarySuit: state.currentTopCombo.primarySuit }
+            : null,
         });
       }
 
@@ -349,6 +404,14 @@ function checkGameOver(): boolean {
   if (playersWithCards.length !== 1) return false;
 
   const loser = playersWithCards[0];
+
+  state.finishOrder.push({
+    position: state.finishOrder.length + 1,
+    playerId: loser.id,
+    username: loser.username,
+    color: loser.color,
+  });
+
   state.phase = 'GAME_OVER';
 
   io.emit('game_over', {
@@ -356,6 +419,7 @@ function checkGameOver(): boolean {
     loserUsername: loser.username,
     cards: loser.cards,
     loserColor: loser.color,
+    finishOrder: state.finishOrder,
   });
 
   if (state.gameOverTimer) clearTimeout(state.gameOverTimer);
@@ -366,8 +430,11 @@ function checkGameOver(): boolean {
       p.ready = false;
     });
     state.pile = [];
-    state.lastDropPlayerId = null;
     state.currentTurnIndex = 0;
+    state.currentTopCombo = null;
+    state.passCount = 0;
+    state.firstPlayMade = false;
+    state.finishOrder = [];
     state.gameOverTimer = null;
     broadcastLobbyUpdate();
   }, 5000);

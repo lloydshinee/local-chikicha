@@ -1,4 +1,4 @@
-import type { Suit, Rank, Card, GamePhase } from '../backend/src/game';
+import type { Suit, Rank, Card, GamePhase } from '@backend/game';
 
 export type { Suit, Rank, Card, GamePhase };
 
@@ -45,17 +45,6 @@ export interface CardDroppedData {
   cards: Card[];
 }
 
-export interface CardUndoneData {
-  playerId: string;
-  cards?: Card[];
-}
-
-export interface CardArrangedData {
-  playerId: string;
-  fromIndex: number;
-  toIndex: number;
-}
-
 export interface CardPassedData {
   playerId: string;
 }
@@ -76,6 +65,29 @@ export interface CountdownData {
 
 export interface TurnChangeData {
   playerId: string;
+  isNewRound?: boolean;
+  currentCombo?: { type: string; primaryRank: string; primarySuit: string } | null;
+}
+
+export interface FinishOrderEntry {
+  position: number;
+  playerId: string;
+  username: string;
+  color: string;
+}
+
+export interface GameOverData {
+  loserId: string;
+  loserUsername: string;
+  cards: Card[];
+  loserColor?: string;
+  finishOrder?: FinishOrderEntry[];
+}
+
+export interface CardDroppedData {
+  playerId: string;
+  cards: Card[];
+  comboType?: string;
 }
 
 export function cardImagePath(card: Card): string {

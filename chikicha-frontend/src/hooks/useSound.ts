@@ -36,39 +36,6 @@ function playTone(
   }
 }
 
-function playNoise(duration: number, volume = 0.05) {
-  try {
-    const ctx = getAudioContext();
-    const bufferSize = ctx.sampleRate * duration;
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
-
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-
-    const bandpass = ctx.createBiquadFilter();
-    bandpass.type = 'bandpass';
-    bandpass.frequency.setValueAtTime(1000, ctx.currentTime);
-
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(volume, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-
-    source.connect(bandpass);
-    bandpass.connect(gain);
-    gain.connect(ctx.destination);
-
-    source.start(ctx.currentTime);
-    source.stop(ctx.currentTime + duration);
-  } catch {
-    // Audio not available
-  }
-}
-
 export function useSound() {
   const lastDropTime = useRef(0);
 
@@ -89,10 +56,6 @@ export function useSound() {
 
   const playCountdownFinal = useCallback(() => {
     playTone(1500, 0.1, 'sine', 0.08);
-  }, []);
-
-  const playUndo = useCallback(() => {
-    playNoise(0.15, 0.04);
   }, []);
 
   const playGameOver = useCallback(() => {
@@ -123,7 +86,6 @@ export function useSound() {
     playPass,
     playCountdownTick,
     playCountdownFinal,
-    playUndo,
     playGameOver,
   };
 }

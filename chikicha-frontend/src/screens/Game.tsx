@@ -1,13 +1,16 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../hooks/useSocket';
 import { useSound } from '../hooks/useSound';
 import { PlayerHand } from '../components/PlayerHand';
 import { CardComponent } from '../components/CardComponent';
+import { detectCombo, canBeat } from '@backend/rules';
+import type { ComboType } from '@backend/rules';
 import type {
   Card, GamePlayer, CardDroppedData,
-  CardPassedData, CardUndoneData, CardArrangedData,
-  PlayerLeftData, GameOverData, TurnChangeData
+  CardPassedData, CardArrangedData,
+  PlayerLeftData, GameOverData, TurnChangeData,
+  FinishOrderEntry,
 } from '../types';
 
 interface Props {
@@ -24,26 +27,65 @@ interface Props {
 interface PileEntry {
   playerId: string;
   cards: Card[];
+  comboType?: ComboType;
 }
+
+const COMBO_LABELS: Record<ComboType, string> = {
+  SINGLE: 'Single',
+  PAIR: 'Pair',
+  THREE: 'Three of a Kind',
+  STRAIGHT: 'Straight',
+  FLUSH: 'Flush',
+  FULL_HOUSE: 'Full House',
+  FOUR: 'Four of a Kind',
+  STRAIGHT_FLUSH: 'Straight Flush',
+};
 
 export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
   const { socket } = useSocket();
-  const { playDrop, playPass, playUndo, playGameOver } = useSound();
+  const { playDrop, playPass, playGameOver } = useSound();
   const [hand, setHand] = useState<Card[]>(initialData.hand);
   const [opponents, setOpponents] = useState<GamePlayer[]>(initialData.players);
   const myColor = initialData.myColor;
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [pile, setPile] = useState<PileEntry[]>([]);
-  const [lastDropIsMine, setLastDropIsMine] = useState(false);
   const [passBubbles, setPassBubbles] = useState<{ id: string; playerId: string }[]>([]);
   const [gameOver, setGameOver] = useState<GameOverData | null>(null);
-  const [loserColor, setLoserColor] = useState<string>('');
   const [currentTurnId, setCurrentTurnId] = useState<string>(initialData.currentTurnPlayerId || '');
+  const [isNewRound, setIsNewRound] = useState(true);
+  const [currentTopCombo, setCurrentTopCombo] = useState<ReturnType<typeof detectCombo>>(null);
   const isMyTurn = !isSpectator && currentTurnId === socket?.id;
+
+  const selectedCards = useMemo(() => {
+    return Array.from(selectedIndices).sort((a, b) => a - b).map((i) => hand[i]).filter(Boolean);
+  }, [selectedIndices, hand]);
+
+  const selectedCombo = useMemo(() => {
+    if (selectedCards.length === 0) return null;
+    return detectCombo(selectedCards);
+  }, [selectedCards]);
+
+  const canPlay = useMemo(() => {
+    if (selectedIndices.size === 0) return false;
+    if (!selectedCombo) return false;
+    if (!currentTopCombo) return true;
+    return canBeat(selectedCombo, currentTopCombo);
+  }, [selectedIndices, selectedCombo, currentTopCombo]);
+
+  const validationMessage = useMemo(() => {
+    if (selectedIndices.size === 0) return null;
+    if (!selectedCombo) return 'Invalid combination';
+    if (currentTopCombo && !canBeat(selectedCombo, currentTopCombo)) {
+      const topLabel = COMBO_LABELS[currentTopCombo.type];
+      return `Must beat ${topLabel}`;
+    }
+    return null;
+  }, [selectedIndices, selectedCombo, currentTopCombo]);
 
   const handleCardDropped = useCallback((data: CardDroppedData) => {
     playDrop();
-    setPile((prev) => [...prev, { playerId: data.playerId, cards: data.cards }]);
+    setPile((prev) => [...prev, { playerId: data.playerId, cards: data.cards, comboType: data.comboType as ComboType }]);
+    setIsNewRound(false);
 
     if (data.playerId === socket?.id) {
       setHand((prev) => {
@@ -51,7 +93,6 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
         return prev.filter((c) => !dropKeys.has(`${c.suit}-${c.rank}`));
       });
       setSelectedIndices(new Set());
-      setLastDropIsMine(true);
     } else {
       setOpponents((prev) =>
         prev.map((opp) =>
@@ -60,7 +101,6 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
             : opp
         )
       );
-      setLastDropIsMine(false);
     }
   }, [socket?.id]);
 
@@ -71,17 +111,7 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
     setTimeout(() => {
       setPassBubbles((prev) => prev.filter((b) => b.id !== bubbleId));
     }, 3000);
-    setLastDropIsMine(false);
   }, []);
-
-  const handleCardUndone = useCallback((data: CardUndoneData & { cards?: Card[] }) => {
-    playUndo();
-    setPile((prev) => prev.slice(0, -1));
-    setLastDropIsMine(false);
-    if (data.cards && data.playerId === socket?.id) {
-      setHand((prev) => [...prev, ...data.cards!]);
-    }
-  }, [socket?.id]);
 
   const handleCardArranged = useCallback((data: CardArrangedData) => {
     if (data.playerId === socket?.id) {
@@ -100,12 +130,22 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
 
   const handleTurnChange = useCallback((data: TurnChangeData) => {
     setCurrentTurnId(data.playerId);
+    setIsNewRound(data.isNewRound ?? false);
+    if (data.currentCombo === null) {
+      setCurrentTopCombo(null);
+    } else if (data.currentCombo) {
+      setCurrentTopCombo({
+        type: data.currentCombo.type as ComboType,
+        primaryRank: data.currentCombo.primaryRank as any,
+        primarySuit: data.currentCombo.primarySuit as any,
+        cards: [],
+      });
+    }
   }, []);
 
-  const handleGameOverEvent = useCallback((data: GameOverData & { loserColor: string }) => {
+  const handleGameOverEvent = useCallback((data: GameOverData) => {
     playGameOver();
     setGameOver(data);
-    setLoserColor(data.loserColor || '');
   }, []);
 
   const handleLobbyUpdate = useCallback(() => {
@@ -118,26 +158,23 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
 
     socket.on('card_dropped', handleCardDropped as any);
     socket.on('card_passed', handleCardPassed);
-    socket.on('card_undone', handleCardUndone);
     socket.on('card_arranged', handleCardArranged);
     socket.on('player_left', handlePlayerLeft);
-    socket.on('turn_change', handleTurnChange);
+    socket.on('turn_change', handleTurnChange as any);
     socket.on('game_over', handleGameOverEvent as any);
     socket.on('lobby_update', handleLobbyUpdate);
 
     return () => {
       socket.off('card_dropped', handleCardDropped as any);
       socket.off('card_passed', handleCardPassed);
-      socket.off('card_undone', handleCardUndone);
       socket.off('card_arranged', handleCardArranged);
       socket.off('player_left', handlePlayerLeft);
-      socket.off('turn_change', handleTurnChange);
+      socket.off('turn_change', handleTurnChange as any);
       socket.off('game_over', handleGameOverEvent as any);
       socket.off('lobby_update', handleLobbyUpdate);
     };
-  }, [socket, handleCardDropped, handleCardPassed, handleCardUndone, handleCardArranged, handlePlayerLeft, handleTurnChange, handleGameOverEvent, handleLobbyUpdate]);
+  }, [socket, handleCardDropped, handleCardPassed, handleCardArranged, handlePlayerLeft, handleTurnChange, handleGameOverEvent, handleLobbyUpdate]);
 
-  // Arrow key handler for card arrangement
   useEffect(() => {
     if (selectedIndices.size !== 1) return;
 
@@ -179,11 +216,6 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
     socket.emit('pass');
   };
 
-  const handleUndo = () => {
-    if (!socket) return;
-    socket.emit('undo');
-  };
-
   const getOpponentPosition = (index: number): 'top' | 'left' | 'right' => {
     const positions: Array<'top' | 'left' | 'right'> = ['top', 'left', 'right'];
     return positions[index] ?? 'left';
@@ -201,9 +233,17 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
   const turnPlayer = opponents.find((o) => o.id === currentTurnId);
   const turnPlayerIsMe = currentTurnId === socket?.id;
 
+  const latestEntry = pile[pile.length - 1];
+  const prevEntry = pile[pile.length - 2];
+
+  const getOwnerColor = (playerId: string) =>
+    opponents.find((o) => o.id === playerId)?.color ?? myColor;
+
+  const getPlayerName = (playerId: string) =>
+    opponents.find((o) => o.id === playerId)?.username ?? 'You';
+
   return (
     <div className="min-h-screen bg-green-700 relative overflow-hidden">
-      {/* Green felt pattern */}
       <div className="absolute inset-0"
         style={{
           backgroundImage: `
@@ -279,47 +319,74 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
 
       {/* Central pile */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="flex flex-wrap justify-center items-start gap-2 max-w-xl p-4">
+        <div className="flex flex-col items-center gap-2 max-w-xl p-4">
           <AnimatePresence>
-            {pile.slice(-2).map((entry, pileIdx) => {
-              const globalIdx = pile.length - 2 + pileIdx;
-              const ownerColor = opponents.find((o) => o.id === entry.playerId)?.color ?? myColor;
-              return (
-                <motion.div
-                  key={globalIdx}
-                  initial={{ opacity: 0, scale: 0.5, y: 30 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.5 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                  className="flex gap-1"
+            {/* Previous hand (faded) */}
+            {prevEntry && (
+              <motion.div
+                key={`prev-${pile.length - 2}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.35, scale: 0.7 }}
+                className="flex gap-1"
+              >
+                {prevEntry.cards.map((card, cardIdx) => (
+                  <div key={cardIdx} className="rounded-lg"
+                    style={{
+                      boxShadow: `0 0 0 2px ${getOwnerColor(prevEntry.playerId)}44`,
+                    }}
+                  >
+                    <CardComponent card={card} scale={0.45} />
+                  </div>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Current hand (prominent) */}
+          <AnimatePresence>
+            {latestEntry && (
+              <motion.div
+                key={`current-${pile.length - 1}`}
+                initial={{ opacity: 0, scale: 0.5, y: 30 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                className="flex flex-col items-center gap-1"
+              >
+                <div className="text-white text-xs font-semibold bg-black/50 px-2 py-0.5 rounded-full"
+                  style={{ boxShadow: `0 0 8px ${getOwnerColor(latestEntry.playerId)}88` }}
                 >
-                  {entry.cards.map((card, cardIdx) => (
+                  {latestEntry.comboType ? COMBO_LABELS[latestEntry.comboType] : 'Drop'} by {getPlayerName(latestEntry.playerId)}
+                </div>
+                <div className="flex gap-1">
+                  {latestEntry.cards.map((card, cardIdx) => (
                     <div
                       key={cardIdx}
-                      className="rounded-lg"
+                      className="rounded-lg animate-pulse"
                       style={{
-                        boxShadow: `0 0 0 4px ${ownerColor}, 0 0 12px ${ownerColor}88`,
+                        boxShadow: `0 0 0 4px ${getOwnerColor(latestEntry.playerId)}, 0 0 16px ${getOwnerColor(latestEntry.playerId)}88`,
                       }}
                     >
                       <CardComponent card={card} scale={0.6} />
                     </div>
                   ))}
-                </motion.div>
-              );
-            })}
+                </div>
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
       </div>
 
-      {/* Undo button */}
-      {!isSpectator && lastDropIsMine && (
-        <div className="absolute bottom-36 left-1/2 -translate-x-1/2 z-20">
-          <button
-            onClick={handleUndo}
-            className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 text-white text-sm font-bold rounded-lg shadow-lg transition-colors"
+      {/* New round indicator */}
+      {isMyTurn && isNewRound && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            className="bg-yellow-500/90 text-black text-lg font-bold px-6 py-2 rounded-full shadow-xl"
           >
-            Undo
-          </button>
+            New round — play any combination!
+          </motion.div>
         </div>
       )}
 
@@ -340,29 +407,44 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
               You ({hand.length} cards)
               {isMyTurn && ' — Your turn'}
             </div>
-            <div className="flex gap-2 ml-4">
-              {isMyTurn && (
-                <>
-                  <button
-                    onClick={handlePass}
-                    className="px-3 py-1.5 bg-gray-500 hover:bg-gray-400 text-white text-sm font-bold rounded-lg transition-colors"
-                  >
-                    Pass
-                  </button>
-                  {selectedIndices.size > 0 && (
+            <div className="flex flex-col items-end gap-1 ml-4">
+              <div className="flex gap-2">
+                {isMyTurn && (
+                  <>
+                    <button
+                      onClick={handlePass}
+                      className="px-3 py-1.5 bg-gray-500 hover:bg-gray-400 text-white text-sm font-bold rounded-lg transition-colors"
+                    >
+                      Pass
+                    </button>
                     <button
                       onClick={handleDrop}
-                      className="px-4 py-1.5 bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-bold rounded-lg transition-colors"
+                      disabled={!canPlay}
+                      className={`px-4 py-1.5 text-sm font-bold rounded-lg transition-colors ${
+                        canPlay
+                          ? 'bg-yellow-500 hover:bg-yellow-400 text-black'
+                          : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                      }`}
                     >
-                      Drop ({selectedIndices.size})
+                      Drop{selectedIndices.size > 0 ? ` (${selectedIndices.size})` : ''}
                     </button>
-                  )}
-                </>
+                  </>
+                )}
+                {!isMyTurn && (
+                  <span className="text-white/50 text-xs px-3 py-1.5">
+                    {turnPlayer ? `Waiting for ${turnPlayerIsMe ? 'you' : turnPlayer.username}...` : 'Waiting...'}
+                  </span>
+                )}
+              </div>
+              {validationMessage && isMyTurn && (
+                <div className="text-red-300 text-xs">
+                  {validationMessage}
+                </div>
               )}
-              {!isMyTurn && (
-                <span className="text-white/50 text-xs px-3 py-1.5">
-                  {turnPlayer ? `Waiting for ${turnPlayerIsMe ? 'you' : turnPlayer.username}...` : 'Waiting...'}
-                </span>
+              {!validationMessage && canPlay && selectedCombo && isMyTurn && (
+                <div className="text-green-300 text-xs">
+                  {COMBO_LABELS[selectedCombo.type]}
+                </div>
               )}
             </div>
           </div>
@@ -392,32 +474,70 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
               initial={{ scale: 0, rotate: -10 }}
               animate={{ scale: 1, rotate: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-              className="text-6xl font-bold text-white mb-4"
+              className="text-4xl font-bold text-white mb-6"
             >
-              Loser: {gameOver.loserUsername}
+              Game Over!
             </motion.div>
-            {loserColor && (
-              <div className="text-sm text-white/70 mb-6">
-                <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ backgroundColor: loserColor }} />
+
+            {gameOver.finishOrder && gameOver.finishOrder.length > 0 ? (
+              <div className="flex flex-col gap-2 mb-6">
+                {gameOver.finishOrder.map((entry: FinishOrderEntry, idx: number) => {
+                  const isLoser = entry.playerId === gameOver.loserId;
+                  return (
+                    <motion.div
+                      key={entry.playerId}
+                      initial={{ x: -50, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      transition={{ delay: 0.2 + idx * 0.15 }}
+                      className={`text-lg font-semibold px-4 py-2 rounded-lg ${
+                        isLoser ? 'bg-red-900/60 text-red-200' : 'bg-white/10 text-white'
+                      }`}
+                    >
+                      <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ backgroundColor: entry.color }} />
+                      {entry.position === 1 ? '🥇 ' : entry.position === 2 ? '🥈 ' : entry.position === 3 ? '🥉 ' : ''}
+                      {isLoser ? `Loser: ${entry.username}` : `${entry.position}st: ${entry.username}`}
+                    </motion.div>
+                  );
+                })}
               </div>
-            )}
-            <motion.div
-              initial={{ y: 50, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="flex gap-1 mb-6"
-            >
-              {gameOver.cards.map((card, i) => (
+            ) : (
+              <>
                 <motion.div
-                  key={i}
-                  initial={{ y: -50, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: 0.3 + i * 0.1 }}
+                  initial={{ scale: 0, rotate: -10 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                  className="text-5xl font-bold text-white mb-4"
                 >
-                  <CardComponent card={card} scale={0.6} />
+                  Loser: {gameOver.loserUsername}
                 </motion.div>
-              ))}
-            </motion.div>
+                {gameOver.loserColor && (
+                  <div className="text-sm text-white/70 mb-6">
+                    <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ backgroundColor: gameOver.loserColor }} />
+                  </div>
+                )}
+              </>
+            )}
+
+            {gameOver.cards && gameOver.cards.length > 0 && (
+              <motion.div
+                initial={{ y: 50, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.2 }}
+                className="flex gap-1 mb-6"
+              >
+                {gameOver.cards.map((card, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ y: -50, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.3 + i * 0.1 }}
+                  >
+                    <CardComponent card={card} scale={0.6} />
+                  </motion.div>
+                ))}
+              </motion.div>
+            )}
+
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

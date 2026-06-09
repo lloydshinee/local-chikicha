@@ -1,3 +1,7 @@
+import type { ComboType, Combo as ComboInfo } from './rules';
+
+export type { ComboType, ComboInfo };
+
 export type Suit = 'spades' | 'hearts' | 'diamonds' | 'clubs';
 export type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K';
 export type GamePhase = 'LOBBY' | 'COUNTDOWN' | 'PLAYING' | 'GAME_OVER';
@@ -25,10 +29,13 @@ export interface GameState {
   players: Player[];
   spectators: Spectator[];
   pile: { playerId: string; cards: Card[] }[];
-  lastDropPlayerId: string | null;
   countdownTimer: ReturnType<typeof setTimeout> | null;
   gameOverTimer: ReturnType<typeof setTimeout> | null;
   currentTurnIndex: number;
+  currentTopCombo: ComboInfo | null;
+  passCount: number;
+  firstPlayMade: boolean;
+  finishOrder: { position: number; playerId: string; username: string; color: string }[];
 }
 
 export const PLAYER_COLORS = ['#EF4444', '#3B82F6', '#22C55E', '#EAB308'];

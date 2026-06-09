@@ -3,6 +3,7 @@ import { io as Client, Socket as ClientSocket } from 'socket.io-client';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import express from 'express';
+import { detectCombo, canBeat, hasThreeOfDiamonds } from './rules';
 
 function createTestServer() {
   const app = express();
@@ -18,8 +19,11 @@ function createTestServer() {
   let phase: string = 'LOBBY';
   let countdownTimer: ReturnType<typeof setInterval> | null = null;
   const pile: { playerId: string; cards: any[] }[] = [];
-  let lastDropPlayerId: string | null = null;
   let currentTurnIndex = 0;
+  let currentTopCombo: ReturnType<typeof detectCombo> | null = null;
+  let passCount = 0;
+  let firstPlayMade = false;
+  const finishOrder: { position: number; playerId: string; username: string; color: string }[] = [];
 
   function broadcastLobby() {
     io.emit('lobby_update', {
@@ -37,9 +41,28 @@ function createTestServer() {
     return Math.floor(Math.random() * players.length);
   }
 
+  function getActive() {
+    return players.filter((p) => p.cards.length > 0);
+  }
+
   function advanceTurn() {
-    currentTurnIndex = (currentTurnIndex + 1) % players.length;
-    io.emit('turn_change', { playerId: players[currentTurnIndex].id });
+    const active = getActive();
+    if (active.length === 0) return;
+
+    const currentPlayerId = players[currentTurnIndex]?.id;
+    const currentIdx = active.findIndex((p) => p.id === currentPlayerId);
+    const nextIdx = (currentIdx + 1) % active.length;
+    const nextPlayer = active[nextIdx];
+    currentTurnIndex = players.findIndex((p) => p.id === nextPlayer.id);
+
+    const isNewRound = currentTopCombo === null;
+    io.emit('turn_change', {
+      playerId: nextPlayer.id,
+      isNewRound,
+      currentCombo: currentTopCombo
+        ? { type: currentTopCombo.type, primaryRank: currentTopCombo.primaryRank, primarySuit: currentTopCombo.primarySuit }
+        : null,
+    });
   }
 
   function startCountdown() {
@@ -56,7 +79,10 @@ function createTestServer() {
         if (countdownTimer) clearInterval(countdownTimer);
         countdownTimer = null;
         pile.length = 0;
-        lastDropPlayerId = null;
+        currentTopCombo = null;
+        passCount = 0;
+        firstPlayMade = false;
+        finishOrder.length = 0;
 
         const suits = ['spades', 'hearts', 'diamonds', 'clubs'];
         const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -101,6 +127,14 @@ function createTestServer() {
     if (withCards.length !== 1) return false;
 
     const loser = withCards[0];
+
+    finishOrder.push({
+      position: finishOrder.length + 1,
+      playerId: loser.id,
+      username: loser.username,
+      color: loser.color,
+    });
+
     phase = 'GAME_OVER';
 
     io.emit('game_over', {
@@ -108,6 +142,7 @@ function createTestServer() {
       loserUsername: loser.username,
       cards: loser.cards,
       loserColor: loser.color,
+      finishOrder: [...finishOrder],
     });
 
     setTimeout(() => {
@@ -117,8 +152,11 @@ function createTestServer() {
         p.ready = false;
       });
       pile.length = 0;
-      lastDropPlayerId = null;
       currentTurnIndex = 0;
+      currentTopCombo = null;
+      passCount = 0;
+      firstPlayMade = false;
+      finishOrder.length = 0;
       broadcastLobby();
     }, 5000);
     return true;
@@ -171,16 +209,42 @@ function createTestServer() {
       const player = players.find((p) => p.id === socket.id);
       if (!player || !data.cardIndices?.length) return;
 
-      if (player.id !== players[currentTurnIndex].id) return;
+      if (player.id !== players[currentTurnIndex]?.id) return;
 
       const sorted = [...data.cardIndices].sort((a, b) => b - a);
       const dropped = sorted.map((i) => (i >= 0 && i < player.cards.length ? player.cards[i] : null));
       if (dropped.some((c) => c === null)) return;
 
+      const validCards = dropped as NonNullable<typeof dropped[0]>[];
+      const combo = detectCombo(validCards);
+      if (!combo) return;
+
+      if (!firstPlayMade) {
+        if (!hasThreeOfDiamonds(validCards)) return;
+      }
+
+      if (currentTopCombo && !canBeat(combo, currentTopCombo)) return;
+
       sorted.forEach((i) => player.cards.splice(i, 1));
-      pile.push({ playerId: player.id, cards: dropped as any[] });
-      lastDropPlayerId = player.id;
-      io.emit('card_dropped', { playerId: player.id, cards: dropped });
+      pile.push({ playerId: player.id, cards: validCards });
+      currentTopCombo = combo;
+      passCount = 0;
+      firstPlayMade = true;
+
+      io.emit('card_dropped', {
+        playerId: player.id,
+        cards: validCards,
+        comboType: combo.type,
+      });
+
+      if (player.cards.length === 0) {
+        finishOrder.push({
+          position: finishOrder.length + 1,
+          playerId: player.id,
+          username: player.username,
+          color: player.color,
+        });
+      }
 
       if (!checkGameOver()) {
         advanceTurn();
@@ -192,21 +256,17 @@ function createTestServer() {
       const player = players.find((p) => p.id === socket.id);
       if (!player) return;
 
-      if (player.id !== players[currentTurnIndex].id) return;
+      if (player.id !== players[currentTurnIndex]?.id) return;
+
+      passCount++;
+      const activeCount = getActive().length;
+      if (passCount >= activeCount - 1) {
+        currentTopCombo = null;
+        passCount = 0;
+      }
 
       io.emit('card_passed', { playerId: player.id });
       advanceTurn();
-    });
-
-    socket.on('undo', () => {
-      if (phase !== 'PLAYING') return;
-      const player = players.find((p) => p.id === socket.id);
-      if (!player || lastDropPlayerId !== player.id) return;
-      const last = pile.pop();
-      if (!last) return;
-      player.cards.push(...last.cards);
-      lastDropPlayerId = null;
-      io.emit('card_undone', { playerId: player.id, cards: last.cards });
     });
 
     socket.on('arrange', (data: { fromIndex: number; toIndex: number }) => {
@@ -226,6 +286,15 @@ function createTestServer() {
       const pi = players.findIndex((p) => p.id === socket.id);
       const si = spectators.findIndex((s) => s.id === socket.id);
       const wasPlaying = phase === 'PLAYING' && !!player;
+
+      if (pi !== -1 && player && player.cards.length > 0) {
+        finishOrder.push({
+          position: finishOrder.length + 1,
+          playerId: player.id,
+          username: player.username,
+          color: player.color,
+        });
+      }
 
       if (pi !== -1) players.splice(pi, 1);
       if (si !== -1) spectators.splice(si, 1);
@@ -508,16 +577,17 @@ describe('gameplay', () => {
   it('drops cards from hand and broadcasts', async () => {
     const sockets = await setupGame();
 
-    // Find which socket has the current turn
     const startData = (sockets[0] as any)._startData;
     const turnPlayerId = startData.currentTurnPlayerId;
     const turnSocket = sockets.find((s) => s.id === turnPlayerId)!;
+    const turnData = (turnSocket as any)._startData;
+    const threeDiamondIdx = (turnData.hand as any[]).findIndex((c: any) => c.suit === 'diamonds' && c.rank === '3');
 
     const dropPromise = new Promise<any>((resolve) => {
       sockets[1].on('card_dropped', resolve);
     });
 
-    turnSocket.emit('drop', { cardIndices: [0] });
+    turnSocket.emit('drop', { cardIndices: [threeDiamondIdx] });
 
     const drop = await dropPromise;
     expect(drop.playerId).toBe(turnSocket.id);
@@ -550,12 +620,14 @@ describe('gameplay', () => {
     const startData = (sockets[0] as any)._startData;
     const turnPlayerId = startData.currentTurnPlayerId;
     const turnSocket = sockets.find((s) => s.id === turnPlayerId)!;
+    const turnData = (turnSocket as any)._startData;
+    const threeDiamondIdx = (turnData.hand as any[]).findIndex((c: any) => c.suit === 'diamonds' && c.rank === '3');
 
     const turnChangePromise = new Promise<any>((resolve) => {
       sockets[0].on('turn_change', resolve);
     });
 
-    turnSocket.emit('drop', { cardIndices: [0] });
+    turnSocket.emit('drop', { cardIndices: [threeDiamondIdx] });
     const change = await turnChangePromise;
 
     expect(change.playerId).toBeDefined();
@@ -577,49 +649,6 @@ describe('gameplay', () => {
     turnSocket.emit('pass');
     const data = await passPromise;
     expect(data.playerId).toBe(turnSocket.id);
-
-    sockets.forEach((s) => s.disconnect());
-  }, 8000);
-
-  it('undo returns cards to hand', async () => {
-    const sockets = await setupGame();
-
-    const startData = (sockets[0] as any)._startData;
-    const turnSocket = sockets.find((s) => s.id === startData.currentTurnPlayerId)!;
-
-    await new Promise<void>((resolve) => {
-      sockets[1].once('card_dropped', () => resolve());
-      turnSocket.emit('drop', { cardIndices: [0] });
-    });
-
-    const undoPromise = new Promise<any>((resolve) => {
-      turnSocket.on('card_undone', resolve);
-    });
-
-    turnSocket.emit('undo');
-    const undo = await undoPromise;
-    expect(undo.playerId).toBe(turnSocket.id);
-
-    sockets.forEach((s) => s.disconnect());
-  }, 8000);
-
-  it('prevents non-dropper from undoing', async () => {
-    const sockets = await setupGame();
-
-    const startData = (sockets[0] as any)._startData;
-    const turnSocket = sockets.find((s) => s.id === startData.currentTurnPlayerId)!;
-
-    await new Promise<void>((resolve) => {
-      sockets[1].once('card_dropped', () => resolve());
-      turnSocket.emit('drop', { cardIndices: [0] });
-    });
-
-    const nonDropper = sockets.find((s) => s.id !== turnSocket.id)!;
-    const undoEvents: any[] = [];
-    nonDropper.on('card_undone', (d) => undoEvents.push(d));
-    nonDropper.emit('undo');
-    await new Promise((r) => setTimeout(r, 200));
-    expect(undoEvents).toHaveLength(0);
 
     sockets.forEach((s) => s.disconnect());
   }, 8000);
