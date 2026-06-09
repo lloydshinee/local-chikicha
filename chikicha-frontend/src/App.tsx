@@ -5,7 +5,7 @@ import { Lobby } from './screens/Lobby';
 import { Game } from './screens/Game';
 import type { Card, GamePlayer } from './types';
 
-type Screen = 'username' | 'lobby' | 'game';
+type Screen = 'username' | 'lobby' | 'game' | 'spectating' | 'gameover';
 
 interface GameData {
   hand: Card[];
@@ -13,18 +13,32 @@ interface GameData {
   myColor: string;
 }
 
+interface SpectateData {
+  players: GamePlayer[];
+  pile: { playerId: string; cards: Card[] }[];
+}
+
 function AppContent() {
   const [screen, setScreen] = useState<Screen>('username');
   const [username, setUsername] = useState('');
   const [gameData, setGameData] = useState<GameData | null>(null);
+  const [spectateData, setSpectateData] = useState<SpectateData | null>(null);
 
   const handleGameStart = useCallback((data: GameData) => {
     setGameData(data);
+    setSpectateData(null);
     setScreen('game');
+  }, []);
+
+  const handleSpectate = useCallback((data: SpectateData) => {
+    setSpectateData(data);
+    setGameData(null);
+    setScreen('spectating');
   }, []);
 
   const handleGameOver = useCallback(() => {
     setGameData(null);
+    setSpectateData(null);
     setScreen('lobby');
   }, []);
 
@@ -42,10 +56,22 @@ function AppContent() {
         <Lobby
           username={username}
           onGameStart={handleGameStart}
+          onSpectate={handleSpectate}
         />
       )}
       {screen === 'game' && gameData && (
-        <Game onGameOver={handleGameOver} initialData={gameData} />
+        <Game
+          initialData={gameData}
+          onGameOver={handleGameOver}
+          isSpectator={false}
+        />
+      )}
+      {screen === 'spectating' && (
+        <Game
+          initialData={{ hand: [], players: spectateData?.players || [], myColor: '' }}
+          onGameOver={handleGameOver}
+          isSpectator
+        />
       )}
     </>
   );

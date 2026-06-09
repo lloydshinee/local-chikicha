@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSocket } from '../hooks/useSocket';
+import { useSound } from '../hooks/useSound';
 import type { LobbyUpdateData, Card, GamePlayer } from '../types';
 
 interface GameData {
@@ -8,16 +9,24 @@ interface GameData {
   myColor: string;
 }
 
+interface SpectateData {
+  players: GamePlayer[];
+  pile: { playerId: string; cards: Card[] }[];
+}
+
 interface Props {
   username: string;
   onGameStart: (data: GameData) => void;
+  onSpectate: (data: SpectateData) => void;
 }
 
-export function Lobby({ username, onGameStart }: Props) {
+export function Lobby({ username, onGameStart, onSpectate }: Props) {
   const { socket } = useSocket();
+  const { playCountdownTick, playCountdownFinal } = useSound();
   const [lobby, setLobby] = useState<LobbyUpdateData>({ players: [], spectators: [] });
   const [ready, setReady] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [amSpectator, setAmSpectator] = useState(false);
 
   const handleGameStartEvent = useCallback((data: { hand: Card[]; players: GamePlayer[] }) => {
     const myPlayer = lobby.players.find((p) => p.id === socket?.id);
@@ -29,15 +38,26 @@ export function Lobby({ username, onGameStart }: Props) {
     });
   }, [socket, lobby.players, onGameStart]);
 
+  const handleSpectateEvent = useCallback((data: SpectateData) => {
+    onSpectate(data);
+  }, [onSpectate]);
+
   useEffect(() => {
     if (!socket) return;
 
     const handleLobbyUpdate = (data: LobbyUpdateData) => {
       setLobby(data);
+      setAmSpectator(data.spectators.some((s) => s.id === socket.id));
+      setReady(false);
     };
 
     const handleCountdown = (data: { seconds: number }) => {
       setCountdown(data.seconds);
+      if (data.seconds === 0) {
+        playCountdownFinal();
+      } else {
+        playCountdownTick();
+      }
     };
 
     const handleCountdownAborted = () => {
@@ -48,17 +68,18 @@ export function Lobby({ username, onGameStart }: Props) {
     socket.on('countdown', handleCountdown);
     socket.on('countdown_aborted', handleCountdownAborted);
     socket.on('game_start', handleGameStartEvent as any);
+    socket.on('spectate', handleSpectateEvent);
 
     return () => {
       socket.off('lobby_update', handleLobbyUpdate);
       socket.off('countdown', handleCountdown);
       socket.off('countdown_aborted', handleCountdownAborted);
       socket.off('game_start', handleGameStartEvent as any);
+      socket.off('spectate', handleSpectateEvent);
     };
-  }, [socket, handleGameStartEvent]);
+  }, [socket, handleGameStartEvent, handleSpectateEvent]);
 
-  const myPlayer = lobby.players.find((p) => p.id === socket?.id);
-  const amPlayer = !!myPlayer;
+  const isPlayer = lobby.players.some((p) => p.id === socket?.id);
 
   const toggleReady = () => {
     const newReady = !ready;
@@ -71,7 +92,7 @@ export function Lobby({ username, onGameStart }: Props) {
       <h1 className="text-3xl font-bold text-gray-800 mb-8">chikicha</h1>
 
       <div className="mb-4 text-sm text-gray-500">
-        {!amPlayer ? 'You are a spectator' : 'Waiting for players...'}
+        {!isPlayer ? 'You are a spectator' : amSpectator ? 'Spectating...' : 'Waiting for players...'}
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-8">

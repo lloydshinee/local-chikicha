@@ -80,6 +80,20 @@ function startCountdown() {
           players: opponentData,
         });
       });
+
+      // Send spectate to spectators
+      if (state.spectators.length > 0) {
+        const playerData = state.players.map((p) => ({
+          id: p.id,
+          username: p.username,
+          color: p.color,
+          cardCount: p.cards.length,
+        }));
+        io.emit('spectate', {
+          players: playerData,
+          pile: state.pile,
+        });
+      }
     }
     seconds--;
   }, 1000);
@@ -119,6 +133,19 @@ io.on('connection', (socket) => {
         username,
       });
       console.log(`Spectator joined: ${username}`);
+
+      // If game is in progress, send current state
+      if (state.phase === 'PLAYING') {
+        socket.emit('spectate', {
+          players: state.players.map((p) => ({
+            id: p.id,
+            username: p.username,
+            color: p.color,
+            cardCount: p.cards.length,
+          })),
+          pile: state.pile,
+        });
+      }
     }
 
     broadcastLobbyUpdate();

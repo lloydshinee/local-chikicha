@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSocket } from '../hooks/useSocket';
+import { useSound } from '../hooks/useSound';
 import { PlayerHand } from '../components/PlayerHand';
 import { CardComponent } from '../components/CardComponent';
 import type {
@@ -15,6 +16,7 @@ interface Props {
     myColor: string;
   };
   onGameOver: () => void;
+  isSpectator?: boolean;
 }
 
 interface PileEntry {
@@ -22,8 +24,9 @@ interface PileEntry {
   cards: Card[];
 }
 
-export function Game({ initialData, onGameOver }: Props) {
+export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
   const { socket } = useSocket();
+  const { playDrop, playPass, playUndo, playGameOver } = useSound();
   const [hand, setHand] = useState<Card[]>(initialData.hand);
   const [opponents, setOpponents] = useState<GamePlayer[]>(initialData.players);
   const myColor = initialData.myColor;
@@ -35,6 +38,7 @@ export function Game({ initialData, onGameOver }: Props) {
   const [loserColor, setLoserColor] = useState<string>('');
 
   const handleCardDropped = useCallback((data: CardDroppedData) => {
+    playDrop();
     setPile((prev) => [...prev, { playerId: data.playerId, cards: data.cards }]);
 
     if (data.playerId === socket?.id) {
@@ -57,6 +61,7 @@ export function Game({ initialData, onGameOver }: Props) {
   }, [socket?.id]);
 
   const handleCardPassed = useCallback((data: CardPassedData) => {
+    playPass();
     const bubbleId = `${data.playerId}-${Date.now()}`;
     setPassBubbles((prev) => [...prev, { id: bubbleId, playerId: data.playerId }]);
     setTimeout(() => {
@@ -65,6 +70,7 @@ export function Game({ initialData, onGameOver }: Props) {
   }, []);
 
   const handleCardUndone = useCallback(() => {
+    playUndo();
     setPile((prev) => prev.slice(0, -1));
     setLastDropIsMine(false);
   }, []);
@@ -85,6 +91,7 @@ export function Game({ initialData, onGameOver }: Props) {
   }, []);
 
   const handleGameOverEvent = useCallback((data: GameOverData & { loserColor: string }) => {
+    playGameOver();
     setGameOver(data);
     setLoserColor(data.loserColor || '');
     setTimeout(() => {
@@ -266,7 +273,7 @@ export function Game({ initialData, onGameOver }: Props) {
       </div>
 
       {/* Undo button */}
-      {lastDropIsMine && (
+      {!isSpectator && lastDropIsMine && (
         <div className="absolute bottom-36 left-1/2 -translate-x-1/2 z-20">
           <button
             onClick={handleUndo}
@@ -278,37 +285,47 @@ export function Game({ initialData, onGameOver }: Props) {
       )}
 
       {/* Self hand */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-white text-xs font-semibold bg-black/30 px-2 py-1 rounded">
-            <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: myColor }} />
-            You ({hand.length} cards)
+      {isSpectator ? (
+        isSpectator && opponents.length > 0 && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none">
+            <div className="text-white text-xs font-semibold bg-black/30 px-2 py-1 rounded text-center">
+              Spectating
+            </div>
           </div>
-          <div className="flex gap-2 ml-4">
-            <button
-              onClick={handlePass}
-              className="px-3 py-1.5 bg-gray-500 hover:bg-gray-400 text-white text-sm font-bold rounded-lg transition-colors"
-            >
-              Pass
-            </button>
-            {selectedIndices.size > 0 && (
+        )
+      ) : (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-white text-xs font-semibold bg-black/30 px-2 py-1 rounded">
+              <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: myColor }} />
+              You ({hand.length} cards)
+            </div>
+            <div className="flex gap-2 ml-4">
               <button
-                onClick={handleDrop}
-                className="px-4 py-1.5 bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-bold rounded-lg transition-colors"
+                onClick={handlePass}
+                className="px-3 py-1.5 bg-gray-500 hover:bg-gray-400 text-white text-sm font-bold rounded-lg transition-colors"
               >
-                Drop ({selectedIndices.size})
+                Pass
               </button>
-            )}
+              {selectedIndices.size > 0 && (
+                <button
+                  onClick={handleDrop}
+                  className="px-4 py-1.5 bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-bold rounded-lg transition-colors"
+                >
+                  Drop ({selectedIndices.size})
+                </button>
+              )}
+            </div>
           </div>
+          <PlayerHand
+            cards={hand}
+            selectedIndices={selectedIndices}
+            playerColor={myColor}
+            isSelf
+            onCardClick={toggleCard}
+          />
         </div>
-        <PlayerHand
-          cards={hand}
-          selectedIndices={selectedIndices}
-          playerColor={myColor}
-          isSelf
-          onCardClick={toggleCard}
-        />
-      </div>
+      )}
 
       {/* Game Over overlay */}
       {gameOver && (
