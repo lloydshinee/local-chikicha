@@ -17,6 +17,12 @@ Triage vocabulary: `ready-for-agent` (can be worked), `in-progress`, `done`
 | 11 | Spectator flow | AFK | done | 2, 4, 10 |
 | 12 | Sound effects | AFK | done | 5, 6, 7, 10 |
 | 13 | Visual polish & poker table layout | HITL | done | 1–12 |
+| 14 | Pusoy Dos rules & undo removal | AFK | ready-for-agent | 5, 6, 10 |
+| 15 | Card ranking + combo utilities | AFK | ready-for-agent | — |
+| 16 | Remove undo | AFK | ready-for-agent | — |
+| 17 | Server-side Pusoy Dos rules | AFK | ready-for-agent | 15 |
+| 18 | Frontend Pusoy Dos UX | AFK | ready-for-agent | 15, 16 |
+| 19 | End-to-end play testing | HITL | ready-for-agent | 17, 18 |
 
 ## Dependency Graph
 
@@ -36,4 +42,11 @@ Triage vocabulary: `ready-for-agent` (can be worked), `in-progress`, `done`
       └── 12 (sounds) ← depends on 5,6,7,10
       
  13 (polish) ← depends on all
+
+ 14 (pusoy dos PRD) ← depends on 5, 6, 10
+   ├── 15 (combo utils) ← foundation, no deps
+   ├── 16 (remove undo) ← cleanup, no deps
+   ├── 17 (server rules) ← depends on 15
+   │    └── 19 (play test) ← depends on 17, 18
+   └── 18 (frontend UX) ← depends on 15, 16
 ```
