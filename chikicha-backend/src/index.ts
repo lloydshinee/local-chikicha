@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer } from 'node:http';
 import cors from 'cors';
 import { Server } from 'socket.io';
-import { GameState, PLAYER_COLORS, MAX_PLAYERS } from './game';
+import { GameState, PLAYER_COLORS, MAX_PLAYERS, createDeck, shuffleDeck, dealCards } from './game';
 
 const app = express();
 app.use(cors());
@@ -55,7 +55,31 @@ function startCountdown() {
       clearInterval(state.countdownTimer!);
       state.countdownTimer = null;
       state.phase = 'PLAYING';
-      // game_start emission handled in issue #4
+      state.pile = [];
+      state.lastDropPlayerId = null;
+
+      const deck = shuffleDeck(createDeck());
+      const hands = dealCards(deck, state.players.length);
+      state.players.forEach((player, i) => {
+        player.cards = hands[i];
+      });
+
+      state.players.forEach((player) => {
+        const opponentData = state.players
+          .filter((p) => p.id !== player.id)
+          .map((p) => ({
+            id: p.id,
+            username: p.username,
+            color: p.color,
+            position: '', // assigned client-side
+            cardCount: p.cards.length,
+          }));
+
+        io.to(player.id).emit('game_start', {
+          hand: player.cards,
+          players: opponentData,
+        });
+      });
     }
     seconds--;
   }, 1000);

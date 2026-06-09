@@ -1,10 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSocket } from '../hooks/useSocket';
-import type { LobbyUpdateData } from '../types';
+import type { LobbyUpdateData, Card, GamePlayer } from '../types';
+
+interface GameData {
+  hand: Card[];
+  players: GamePlayer[];
+  myColor: string;
+}
 
 interface Props {
   username: string;
-  onGameStart: () => void;
+  onGameStart: (data: GameData) => void;
 }
 
 export function Lobby({ username, onGameStart }: Props) {
@@ -13,9 +19,15 @@ export function Lobby({ username, onGameStart }: Props) {
   const [ready, setReady] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
 
-  const handleGameStart = useCallback(() => {
-    onGameStart();
-  }, [onGameStart]);
+  const handleGameStartEvent = useCallback((data: { hand: Card[]; players: GamePlayer[] }) => {
+    const myPlayer = lobby.players.find((p) => p.id === socket?.id);
+    setCountdown(null);
+    onGameStart({
+      hand: data.hand,
+      players: data.players,
+      myColor: myPlayer?.color ?? '',
+    });
+  }, [socket, lobby.players, onGameStart]);
 
   useEffect(() => {
     if (!socket) return;
@@ -32,23 +44,18 @@ export function Lobby({ username, onGameStart }: Props) {
       setCountdown(null);
     };
 
-    const handleGameStartEvent = () => {
-      setCountdown(null);
-      handleGameStart();
-    };
-
     socket.on('lobby_update', handleLobbyUpdate);
     socket.on('countdown', handleCountdown);
     socket.on('countdown_aborted', handleCountdownAborted);
-    socket.on('game_start', handleGameStartEvent);
+    socket.on('game_start', handleGameStartEvent as any);
 
     return () => {
       socket.off('lobby_update', handleLobbyUpdate);
       socket.off('countdown', handleCountdown);
       socket.off('countdown_aborted', handleCountdownAborted);
-      socket.off('game_start', handleGameStartEvent);
+      socket.off('game_start', handleGameStartEvent as any);
     };
-  }, [socket, handleGameStart]);
+  }, [socket, handleGameStartEvent]);
 
   const myPlayer = lobby.players.find((p) => p.id === socket?.id);
   const amPlayer = !!myPlayer;
