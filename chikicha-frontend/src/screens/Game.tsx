@@ -100,7 +100,6 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
 
   const handleTurnChange = useCallback((data: TurnChangeData) => {
     setCurrentTurnId(data.playerId);
-    setLastDropIsMine(false);
   }, []);
 
   const handleGameOverEvent = useCallback((data: GameOverData & { loserColor: string }) => {

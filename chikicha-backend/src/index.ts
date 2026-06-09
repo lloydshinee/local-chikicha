@@ -281,6 +281,13 @@ io.on('connection', (socket) => {
     player.cards.push(...lastPileEntry.cards);
     state.lastDropPlayerId = null;
 
+    // Return turn to the player who undid
+    const playerIdx = state.players.findIndex((p) => p.id === player.id);
+    if (playerIdx !== -1) {
+      state.currentTurnIndex = playerIdx;
+      io.emit('turn_change', { playerId: player.id });
+    }
+
     io.emit('card_undone', { playerId: player.id, cards: lastPileEntry.cards });
   });
 
