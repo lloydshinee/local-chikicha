@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../hooks/useSocket';
 import { useSound } from '../hooks/useSound';
 import { PlayerHand } from '../components/PlayerHand';
@@ -199,11 +200,16 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
   };
 
   return (
-    <div className="min-h-screen bg-green-800 relative overflow-hidden">
-      <div className="absolute inset-0 opacity-10"
+    <div className="min-h-screen bg-green-700 relative overflow-hidden">
+      {/* Green felt pattern */}
+      <div className="absolute inset-0"
         style={{
-          backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px)',
-          backgroundSize: '20px 20px',
+          backgroundImage: `
+            radial-gradient(circle at 25% 25%, rgba(34,197,94,0.15) 0%, transparent 50%),
+            radial-gradient(circle at 75% 75%, rgba(34,197,94,0.1) 0%, transparent 50%),
+            radial-gradient(circle, rgba(0,0,0,0.2) 1px, transparent 1px)
+          `,
+          backgroundSize: '100% 100%, 100% 100%, 16px 16px',
         }}
       />
 
@@ -253,22 +259,31 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
       {/* Central pile */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div className="flex flex-wrap justify-center items-start gap-2 max-w-xl p-4">
-          {pile.map((entry, pileIdx) => {
-            const ownerColor = opponents.find((o) => o.id === entry.playerId)?.color ?? myColor;
-            return (
-              <div key={pileIdx} className="flex gap-1">
-                {entry.cards.map((card, cardIdx) => (
-                  <div
-                    key={cardIdx}
-                    className="rounded-lg"
-                    style={{ boxShadow: `0 0 0 2px ${ownerColor}` }}
-                  >
-                    <CardComponent card={card} scale={0.6} />
-                  </div>
-                ))}
-              </div>
-            );
-          })}
+          <AnimatePresence>
+            {pile.map((entry, pileIdx) => {
+              const ownerColor = opponents.find((o) => o.id === entry.playerId)?.color ?? myColor;
+              return (
+                <motion.div
+                  key={pileIdx}
+                  initial={{ opacity: 0, scale: 0.5, y: 30 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.5 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                  className="flex gap-1"
+                >
+                  {entry.cards.map((card, cardIdx) => (
+                    <div
+                      key={cardIdx}
+                      className="rounded-lg"
+                      style={{ boxShadow: `0 0 0 2px ${ownerColor}` }}
+                    >
+                      <CardComponent card={card} scale={0.6} />
+                    </div>
+                  ))}
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -328,24 +343,55 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
       )}
 
       {/* Game Over overlay */}
-      {gameOver && (
-        <div className="fixed inset-0 bg-black/70 flex flex-col items-center justify-center z-50">
-          <div className="text-6xl font-bold text-white mb-4 animate-bounce">
-            Loser: {gameOver.loserUsername}
-          </div>
-          {loserColor && (
-            <div className="text-sm text-white/70 mb-6">
-              <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ backgroundColor: loserColor }} />
-            </div>
-          )}
-          <div className="flex gap-1 mb-6">
-            {gameOver.cards.map((card, i) => (
-              <CardComponent key={i} card={card} scale={0.6} />
-            ))}
-          </div>
-          <div className="text-white/50 text-sm">Returning to lobby...</div>
-        </div>
-      )}
+      <AnimatePresence>
+        {gameOver && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 flex flex-col items-center justify-center z-50"
+          >
+            <motion.div
+              initial={{ scale: 0, rotate: -10 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+              className="text-6xl font-bold text-white mb-4"
+            >
+              Loser: {gameOver.loserUsername}
+            </motion.div>
+            {loserColor && (
+              <div className="text-sm text-white/70 mb-6">
+                <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ backgroundColor: loserColor }} />
+              </div>
+            )}
+            <motion.div
+              initial={{ y: 50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              className="flex gap-1 mb-6"
+            >
+              {gameOver.cards.map((card, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ y: -50, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.3 + i * 0.1 }}
+                >
+                  <CardComponent card={card} scale={0.6} />
+                </motion.div>
+              ))}
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.8 }}
+              className="text-white/50 text-sm"
+            >
+              Returning to lobby...
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

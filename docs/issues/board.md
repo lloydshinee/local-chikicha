@@ -16,7 +16,7 @@ Triage vocabulary: `ready-for-agent` (can be worked), `in-progress`, `done`
 | 10 | Game over: loser reveal & lobby reset | AFK | done | 5, 6 |
 | 11 | Spectator flow | AFK | done | 2, 4, 10 |
 | 12 | Sound effects | AFK | done | 5, 6, 7, 10 |
-| 13 | Visual polish & poker table layout | HITL | ready-for-agent | 1–12 |
+| 13 | Visual polish & poker table layout | HITL | done | 1–12 |
 
 ## Dependency Graph
 

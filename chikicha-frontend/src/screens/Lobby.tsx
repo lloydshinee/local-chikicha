@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../hooks/useSocket';
 import { useSound } from '../hooks/useSound';
 import type { LobbyUpdateData, Card, GamePlayer } from '../types';
@@ -148,11 +149,25 @@ export function Lobby({ username, onGameStart, onSpectate }: Props) {
       )}
 
       {countdown !== null && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="text-8xl font-bold text-white animate-pulse">
-            {countdown === 0 ? 'GO!' : countdown}
-          </div>
-        </div>
+        <AnimatePresence>
+          <motion.div
+            key="countdown"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          >
+            <motion.div
+              key={countdown}
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 1.5, opacity: 0 }}
+              className="text-8xl font-bold text-white"
+            >
+              {countdown === 0 ? 'GO!' : countdown}
+            </motion.div>
+          </motion.div>
+        </AnimatePresence>
       )}
     </div>
   );

@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion';
 import type { Card } from '../types';
 import { cardImagePath, cardBackPath } from '../types';
 
@@ -9,6 +10,7 @@ interface CardComponentProps {
   scale?: number;
   onClick?: () => void;
   className?: string;
+  animateEntrance?: boolean;
 }
 
 export function CardComponent({
@@ -19,21 +21,27 @@ export function CardComponent({
   scale = 0.6,
   onClick,
   className = '',
+  animateEntrance = false,
 }: CardComponentProps) {
   const w = 242 * scale;
   const h = 340 * scale;
 
   return (
-    <div
+    <motion.div
       onClick={onClick}
-      className={`relative rounded-lg overflow-hidden transition-transform ${onClick ? 'cursor-pointer' : ''} ${className}`}
-      style={{
-        width: w,
-        height: h,
-        transform: selected ? 'translateY(-10px)' : undefined,
+      initial={animateEntrance ? { opacity: 0, y: -20 } : undefined}
+      animate={{
+        opacity: 1,
+        y: selected ? -10 : 0,
         boxShadow: selected && playerColor
           ? `0 0 0 3px ${playerColor}, 0 4px 12px rgba(0,0,0,0.3)`
           : '0 2px 6px rgba(0,0,0,0.2)',
+      }}
+      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+      className={`relative rounded-lg overflow-hidden ${onClick ? 'cursor-pointer' : ''} ${className}`}
+      style={{
+        width: w,
+        height: h,
         flexShrink: 0,
       }}
     >
@@ -45,6 +53,6 @@ export function CardComponent({
         className="block"
         draggable={false}
       />
-    </div>
+    </motion.div>
   );
 }
