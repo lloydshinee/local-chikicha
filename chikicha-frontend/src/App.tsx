@@ -1,42 +1,45 @@
-import { useEffect, useState } from 'react'
-import { io, Socket } from 'socket.io-client'
+import { useState } from 'react';
+import { SocketProvider } from './hooks/useSocket';
+import { UsernameInput } from './screens/UsernameInput';
+import { Lobby } from './screens/Lobby';
 
-function App() {
-  const [socket, setSocket] = useState<Socket | null>(null)
-  const [status, setStatus] = useState('Connecting...')
+type Screen = 'username' | 'lobby' | 'game';
 
-  useEffect(() => {
-    const s = io()
-
-    s.on('connect', () => {
-      setStatus('Connected')
-    })
-
-    s.on('disconnect', () => {
-      setStatus('Disconnected')
-    })
-
-    setSocket(s)
-
-    return () => {
-      s.disconnect()
-    }
-  }, [])
+function AppContent() {
+  const [screen, setScreen] = useState<Screen>('username');
+  const [username, setUsername] = useState('');
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-gray-800 mb-4">chikicha</h1>
-        <div className="flex items-center gap-2 justify-center">
-          <div className={`w-3 h-3 rounded-full ${status === 'Connected' ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className="text-gray-600">{status}</span>
+    <>
+      {screen === 'username' && (
+        <UsernameInput
+          onJoin={(name) => {
+            setUsername(name);
+            setScreen('lobby');
+          }}
+        />
+      )}
+      {screen === 'lobby' && (
+        <Lobby
+          username={username}
+          onGameStart={() => setScreen('game')}
+        />
+      )}
+      {screen === 'game' && (
+        <div className="flex items-center justify-center min-h-screen bg-gray-100">
+          <div className="text-2xl text-gray-600">Game screen coming soon...</div>
         </div>
-        {socket && (
-          <p className="text-sm text-gray-400 mt-2">ID: {socket.id}</p>
-        )}
-      </div>
-    </div>
-  )
+      )}
+    </>
+  );
 }
 
-export default App
+function App() {
+  return (
+    <SocketProvider>
+      <AppContent />
+    </SocketProvider>
+  );
+}
+
+export default App;
