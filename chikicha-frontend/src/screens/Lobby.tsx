@@ -55,7 +55,11 @@ export function Lobby({ username, onGameStart, onSpectate }: Props) {
     const handleLobbyUpdate = (data: LobbyUpdateData) => {
       setLobby(data);
       setAmSpectator(data.spectators.some((s) => s.id === socket.id));
-      setReady(false);
+      // Sync ready state from server
+      const me = data.players.find((p) => p.id === socket?.id);
+      if (me) {
+        setReady(me.ready);
+      }
     };
 
     const handleCountdown = (data: { seconds: number }) => {
