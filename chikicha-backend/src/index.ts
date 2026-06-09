@@ -40,6 +40,36 @@ function broadcastLobbyUpdate() {
   });
 }
 
+function startCountdown() {
+  state.phase = 'COUNTDOWN';
+  let seconds = 3;
+
+  io.emit('countdown', { seconds });
+  seconds--;
+
+  state.countdownTimer = setInterval(() => {
+    if (seconds >= 0) {
+      io.emit('countdown', { seconds });
+    }
+    if (seconds === 0) {
+      clearInterval(state.countdownTimer!);
+      state.countdownTimer = null;
+      state.phase = 'PLAYING';
+      // game_start emission handled in issue #4
+    }
+    seconds--;
+  }, 1000);
+}
+
+function abortCountdown() {
+  if (state.countdownTimer) {
+    clearInterval(state.countdownTimer);
+    state.countdownTimer = null;
+    state.phase = 'LOBBY';
+    io.emit('countdown_aborted');
+  }
+}
+
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
@@ -68,6 +98,27 @@ io.on('connection', (socket) => {
     }
 
     broadcastLobbyUpdate();
+  });
+
+  socket.on('ready', (data: { ready: boolean }) => {
+    if (state.phase !== 'LOBBY' && state.phase !== 'COUNTDOWN') return;
+
+    const player = state.players.find((p) => p.id === socket.id);
+    if (!player) return;
+
+    player.ready = data.ready;
+
+    if (state.phase === 'COUNTDOWN' && !player.ready) {
+      abortCountdown();
+      broadcastLobbyUpdate();
+      return;
+    }
+
+    broadcastLobbyUpdate();
+
+    if (state.phase === 'LOBBY' && state.players.length === MAX_PLAYERS && state.players.every((p) => p.ready)) {
+      startCountdown();
+    }
   });
 
   socket.on('disconnect', () => {

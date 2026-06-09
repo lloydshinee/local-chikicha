@@ -6,7 +6,7 @@ Triage vocabulary: `ready-for-agent` (can be worked), `in-progress`, `done`
 |---|-------|------|--------|------------|
 | 1 | Scaffold: project setup & socket handshake | AFK | done | — |
 | 2 | Join flow: username entry to lobby | AFK | done | 1 |
-| 3 | Ready flow: toggle, countdown, abort | AFK | ready-for-agent | 2 |
+| 3 | Ready flow: toggle, countdown, abort | AFK | done | 2 |
 | 4 | Game start: deal cards & display hands | AFK | ready-for-agent | 3 |
 | 5 | Card selection & drop to central area | AFK | ready-for-agent | 4 |
 | 6 | Pass with emote bubble | AFK | ready-for-agent | 4 |
