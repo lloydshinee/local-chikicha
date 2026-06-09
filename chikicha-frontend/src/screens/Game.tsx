@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSocket } from '../hooks/useSocket';
 import { PlayerHand } from '../components/PlayerHand';
-import type { Card, GamePlayer } from '../types';
+import { CardComponent } from '../components/CardComponent';
+import type { Card, GamePlayer, CardDroppedData, PlayerLeftData, GameOverData } from '../types';
 
 interface Props {
   initialData: {
@@ -12,12 +13,48 @@ interface Props {
   onGameOver: () => void;
 }
 
+interface PileEntry {
+  playerId: string;
+  cards: Card[];
+}
+
 export function Game({ initialData, onGameOver }: Props) {
   const { socket } = useSocket();
   const [hand, setHand] = useState<Card[]>(initialData.hand);
-  const [opponents] = useState<GamePlayer[]>(initialData.players);
+  const [opponents, setOpponents] = useState<GamePlayer[]>(initialData.players);
   const [myColor] = useState(initialData.myColor);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [pile, setPile] = useState<PileEntry[]>([]);
+
+  const handleCardDropped = useCallback((data: CardDroppedData) => {
+    setPile((prev) => [...prev, { playerId: data.playerId, cards: data.cards }]);
+
+    if (data.playerId === socket?.id) {
+      setHand((prev) => {
+        const dropKeys = new Set(data.cards.map((c) => `${c.suit}-${c.rank}`));
+        return prev.filter((c) => !dropKeys.has(`${c.suit}-${c.rank}`));
+      });
+      setSelectedIndices(new Set());
+    } else {
+      setOpponents((prev) =>
+        prev.map((opp) =>
+          opp.id === data.playerId
+            ? { ...opp, cardCount: opp.cardCount - data.cards.length }
+            : opp
+        )
+      );
+    }
+  }, [socket?.id]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('card_dropped', handleCardDropped as any);
+
+    return () => {
+      socket.off('card_dropped', handleCardDropped as any);
+    };
+  }, [socket, handleCardDropped]);
 
   const toggleCard = (index: number) => {
     setSelectedIndices((prev) => {
@@ -31,12 +68,25 @@ export function Game({ initialData, onGameOver }: Props) {
     });
   };
 
+  const handleDrop = () => {
+    if (selectedIndices.size === 0 || !socket) return;
+    const indices = Array.from(selectedIndices);
+    socket.emit('drop', { cardIndices: indices });
+  };
+
   const getOpponentPosition = (index: number): 'top' | 'left' | 'right' => {
     const positions: Array<'top' | 'left' | 'right'> = ['top', 'left', 'right'];
     return positions[index] ?? 'left';
   };
 
-  const isVertical = (pos: string) => pos === 'left' || pos === 'right';
+  const getOpponentStyles = (pos: string) => {
+    switch (pos) {
+      case 'top': return 'top-4 left-1/2 -translate-x-1/2';
+      case 'left': return 'left-4 top-1/2 -translate-y-1/2 flex-col';
+      case 'right': return 'right-4 top-1/2 -translate-y-1/2 flex-col';
+      default: return '';
+    }
+  };
 
   return (
     <div className="min-h-screen bg-green-800 relative overflow-hidden">
@@ -51,14 +101,8 @@ export function Game({ initialData, onGameOver }: Props) {
       <div className="absolute inset-0 pointer-events-none">
         {opponents.map((opp, i) => {
           const pos = getOpponentPosition(i);
-          const vertStyle = isVertical(pos)
-            ? pos === 'left'
-              ? 'left-4 top-1/2 -translate-y-1/2 flex-col'
-              : 'right-4 top-1/2 -translate-y-1/2 flex-col'
-            : 'top-4 left-1/2 -translate-x-1/2';
-
           return (
-            <div key={opp.id} className={`absolute ${vertStyle} flex items-center gap-2`}>
+            <div key={opp.id} className={`absolute ${getOpponentStyles(pos)} flex items-center gap-2`}>
               <div className="text-white text-xs font-semibold bg-black/30 px-2 py-1 rounded whitespace-nowrap">
                 <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: opp.color }} />
                 {opp.username}
@@ -75,18 +119,50 @@ export function Game({ initialData, onGameOver }: Props) {
         })}
       </div>
 
-      {/* Central play area */}
+      {/* Central pile */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="border-2 border-white/10 rounded-full w-64 h-64 flex items-center justify-center">
-          <span className="text-white/20 text-sm">chikicha</span>
+        <div className="flex flex-wrap justify-center items-start gap-2 max-w-xl p-4">
+          {pile.map((entry, pileIdx) => (
+            <div key={pileIdx} className="flex gap-1">
+              {entry.cards.map((card, cardIdx) => {
+                const ownerColor = opponents.find((o) => o.id === entry.playerId)?.color;
+                if (entry.playerId === socket?.id) {
+                  return null; // Our own drops appear via hand removal
+                }
+                return (
+                  <div
+                    key={cardIdx}
+                    className="rounded-lg"
+                    style={{
+                      boxShadow: ownerColor
+                        ? `0 0 0 2px ${ownerColor}`
+                        : undefined,
+                    }}
+                  >
+                    <CardComponent card={card} scale={0.6} />
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Self hand */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-        <div className="text-white text-xs font-semibold bg-black/30 px-2 py-1 rounded mb-2 text-center">
-          <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: myColor }} />
-          You ({hand.length} cards)
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-white text-xs font-semibold bg-black/30 px-2 py-1 rounded">
+            <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: myColor }} />
+            You ({hand.length} cards)
+          </div>
+          {selectedIndices.size > 0 && (
+            <button
+              onClick={handleDrop}
+              className="ml-4 px-4 py-1.5 bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-bold rounded-lg transition-colors"
+            >
+              Drop ({selectedIndices.size})
+            </button>
+          )}
         </div>
         <PlayerHand
           cards={hand}

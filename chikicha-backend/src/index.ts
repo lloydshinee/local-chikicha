@@ -145,6 +145,41 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('drop', (data: { cardIndices: number[] }) => {
+    if (state.phase !== 'PLAYING') return;
+
+    const player = state.players.find((p) => p.id === socket.id);
+    if (!player) return;
+
+    const indices = data.cardIndices;
+    if (!indices || indices.length === 0) return;
+
+    const sortedIndices = [...indices].sort((a, b) => b - a);
+    const droppedCards = sortedIndices.map((i) => {
+      if (i < 0 || i >= player.cards.length) return null;
+      return player.cards[i];
+    });
+
+    if (droppedCards.some((c) => c === null)) return;
+
+    const validCards = droppedCards as NonNullable<typeof droppedCards[0]>[];
+
+    sortedIndices.forEach((i) => {
+      player.cards.splice(i, 1);
+    });
+
+    state.pile.push({
+      playerId: player.id,
+      cards: validCards,
+    });
+    state.lastDropPlayerId = player.id;
+
+    io.emit('card_dropped', {
+      playerId: player.id,
+      cards: validCards,
+    });
+  });
+
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
 

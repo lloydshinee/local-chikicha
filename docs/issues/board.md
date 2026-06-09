@@ -8,7 +8,7 @@ Triage vocabulary: `ready-for-agent` (can be worked), `in-progress`, `done`
 | 2 | Join flow: username entry to lobby | AFK | done | 1 |
 | 3 | Ready flow: toggle, countdown, abort | AFK | done | 2 |
 | 4 | Game start: deal cards & display hands | AFK | done | 3 |
-| 5 | Card selection & drop to central area | AFK | ready-for-agent | 4 |
+| 5 | Card selection & drop to central area | AFK | done | 4 |
 | 6 | Pass with emote bubble | AFK | ready-for-agent | 4 |
 | 7 | Undo mechanic | AFK | ready-for-agent | 5 |
 | 8 | Hand arrangement via arrow keys | AFK | ready-for-agent | 4 |

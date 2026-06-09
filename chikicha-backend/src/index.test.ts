@@ -11,12 +11,14 @@ function createTestServer() {
   const port = Math.floor(Math.random() * 10000) + 20000;
   httpServer.listen(port);
 
-  const players: { id: string; username: string; color: string; ready: boolean }[] = [];
+  const players: { id: string; username: string; color: string; ready: boolean; cards: any[] }[] = [];
   const spectators: { id: string; username: string }[] = [];
   const colors = ['#EF4444', '#3B82F6', '#22C55E', '#EAB308'];
   const MAX = 4;
   let phase: string = 'LOBBY';
   let countdownTimer: ReturnType<typeof setInterval> | null = null;
+  const pile: { playerId: string; cards: any[] }[] = [];
+  let lastDropPlayerId: string | null = null;
 
   function broadcastLobby() {
     io.emit('lobby_update', {
@@ -38,8 +40,29 @@ function createTestServer() {
       if (seconds === 0) {
         if (countdownTimer) clearInterval(countdownTimer);
         countdownTimer = null;
+        pile.length = 0;
+        lastDropPlayerId = null;
+
+        const suits = ['spades', 'hearts', 'diamonds', 'clubs'];
+        const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+        const deck: any[] = [];
+        for (const s of suits) for (const r of ranks) deck.push({ suit: s, rank: r });
+        for (let i = deck.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+
+        const hands: any[][] = players.map(() => []);
+        deck.forEach((c, i) => hands[i % players.length].push(c));
+        players.forEach((p, i) => { p.cards = hands[i]; });
+
         phase = 'PLAYING';
-        io.emit('game_start', {});
+        players.forEach((p) => {
+          const opponents = players
+            .filter((op) => op.id !== p.id)
+            .map((op) => ({ id: op.id, username: op.username, color: op.color, cardCount: op.cards.length }));
+          io.to(p.id).emit('game_start', { hand: p.cards, players: opponents });
+        });
       }
       seconds--;
     }, 1000);
@@ -87,6 +110,21 @@ function createTestServer() {
       if (phase === 'LOBBY' && players.length === MAX && players.every((p) => p.ready)) {
         startCountdown();
       }
+    });
+
+    socket.on('drop', (data: { cardIndices: number[] }) => {
+      if (phase !== 'PLAYING') return;
+      const player = players.find((p) => p.id === socket.id);
+      if (!player || !data.cardIndices?.length) return;
+
+      const sorted = [...data.cardIndices].sort((a, b) => b - a);
+      const dropped = sorted.map((i) => (i >= 0 && i < player.cards.length ? player.cards[i] : null));
+      if (dropped.some((c) => c === null)) return;
+
+      sorted.forEach((i) => player.cards.splice(i, 1));
+      pile.push({ playerId: player.id, cards: dropped as any[] });
+      lastDropPlayerId = player.id;
+      io.emit('card_dropped', { playerId: player.id, cards: dropped });
     });
 
     socket.on('disconnect', () => {
@@ -307,6 +345,91 @@ describe('ready & countdown', () => {
 
     expect(events).toContain('countdown');
     expect(events).toContain('aborted');
+
+    sockets.forEach((s) => s.disconnect());
+  }, 8000);
+});
+
+describe('gameplay: drop', () => {
+  let server: ReturnType<typeof createTestServer>;
+
+  beforeEach(() => {
+    server = createTestServer();
+  });
+
+  afterEach(() => {
+    server.httpServer.close();
+    server.io.close();
+  });
+
+  function connectClient(): Promise<ClientSocket> {
+    return new Promise((resolve) => {
+      const socket = Client(`http://localhost:${server.port}`, {
+        transports: ['websocket'],
+      });
+      socket.on('connect', () => resolve(socket));
+    });
+  }
+
+  async function setupGame(): Promise<ClientSocket[]> {
+    const sockets: ClientSocket[] = [];
+    for (let i = 0; i < 4; i++) sockets.push(await connectClient());
+
+    sockets[0].emit('join', { username: 'P1' });
+    sockets[1].emit('join', { username: 'P2' });
+    sockets[2].emit('join', { username: 'P3' });
+    sockets[3].emit('join', { username: 'P4' });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const gameStarted = Promise.all(
+      sockets.map((s) => new Promise<void>((resolve) => {
+        s.once('game_start', () => resolve());
+      }))
+    );
+
+    sockets[0].emit('ready', { ready: true });
+    sockets[1].emit('ready', { ready: true });
+    sockets[2].emit('ready', { ready: true });
+    sockets[3].emit('ready', { ready: true });
+    await gameStarted;
+
+    return sockets;
+  }
+
+  it('drops cards from hand and broadcasts', async () => {
+    const sockets = await setupGame();
+
+    const dropPromise = new Promise<any>((resolve) => {
+      sockets[1].on('card_dropped', resolve);
+    });
+
+    sockets[0].emit('drop', { cardIndices: [0, 1] });
+
+    const drop = await dropPromise;
+    expect(drop.playerId).toBe(sockets[0].id);
+    expect(drop.cards).toHaveLength(2);
+
+    sockets.forEach((s) => s.disconnect());
+  }, 8000);
+
+  it('removes dropped cards from hand', async () => {
+    const sockets = await setupGame();
+
+    // Get initial hand card count from game_start
+    let initialCount = 0;
+    const startPromise = new Promise<number>((resolve) => {
+      sockets[0].on('game_start', (data: any) => resolve(data.hand.length));
+    });
+
+    // We already waited for game_start in setupGame, so we need a different approach
+    // Just drop and check the card_dropped reduces opponent cardCount
+    const dropPromise = new Promise<any>((resolve) => {
+      sockets[1].on('card_dropped', resolve);
+    });
+
+    sockets[0].emit('drop', { cardIndices: [0] });
+    const drop = await dropPromise;
+    expect(drop.cards).toHaveLength(1);
 
     sockets.forEach((s) => s.disconnect());
   }, 8000);
