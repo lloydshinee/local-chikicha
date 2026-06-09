@@ -127,6 +127,28 @@ function createTestServer() {
       io.emit('card_dropped', { playerId: player.id, cards: dropped });
     });
 
+    socket.on('pass', () => {
+      if (phase !== 'PLAYING') return;
+      const player = players.find((p) => p.id === socket.id);
+      if (!player) return;
+      io.emit('card_passed', { playerId: player.id });
+    });
+
+    socket.on('undo', () => {
+      if (phase !== 'PLAYING') return;
+      const player = players.find((p) => p.id === socket.id);
+      if (!player || lastDropPlayerId !== player.id) return;
+      const last = pile.pop();
+      if (!last) return;
+      player.cards.push(...last.cards);
+      lastDropPlayerId = null;
+      io.emit('card_undone', { playerId: player.id });
+    });
+
+    socket.on('arrange', (data: { fromIndex: number; toIndex: number }) => {
+      // placeholder - implemented in issue #8
+    });
+
     socket.on('disconnect', () => {
       const pi = players.findIndex((p) => p.id === socket.id);
       const si = spectators.findIndex((s) => s.id === socket.id);
@@ -430,6 +452,55 @@ describe('gameplay: drop', () => {
     sockets[0].emit('drop', { cardIndices: [0] });
     const drop = await dropPromise;
     expect(drop.cards).toHaveLength(1);
+
+    sockets.forEach((s) => s.disconnect());
+  }, 8000);
+
+  it('broadcasts pass', async () => {
+    const sockets = await setupGame();
+    const passPromise = new Promise<any>((resolve) => {
+      sockets[1].on('card_passed', resolve);
+    });
+    sockets[0].emit('pass');
+    const data = await passPromise;
+    expect(data.playerId).toBe(sockets[0].id);
+    sockets.forEach((s) => s.disconnect());
+  }, 8000);
+
+  it('undo returns cards to hand', async () => {
+    const sockets = await setupGame();
+
+    const dropPromise = new Promise<any>((resolve) => {
+      sockets[1].on('card_dropped', resolve);
+    });
+    sockets[0].emit('drop', { cardIndices: [0] });
+    await dropPromise;
+
+    const undoPromise = new Promise<any>((resolve) => {
+      sockets[0].on('card_undone', resolve);
+    });
+    sockets[0].emit('undo');
+    const undo = await undoPromise;
+    expect(undo.playerId).toBe(sockets[0].id);
+
+    sockets.forEach((s) => s.disconnect());
+  }, 8000);
+
+  it('prevents non-dropper from undoing', async () => {
+    const sockets = await setupGame();
+
+    const dropPromise = new Promise<any>((resolve) => {
+      sockets[1].on('card_dropped', resolve);
+    });
+    sockets[0].emit('drop', { cardIndices: [0] });
+    await dropPromise;
+
+    // Socket 1 tries to undo
+    const undoEvents: any[] = [];
+    sockets[1].on('card_undone', (d) => undoEvents.push(d));
+    sockets[1].emit('undo');
+    await new Promise((r) => setTimeout(r, 200));
+    expect(undoEvents).toHaveLength(0);
 
     sockets.forEach((s) => s.disconnect());
   }, 8000);

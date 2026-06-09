@@ -180,6 +180,28 @@ io.on('connection', (socket) => {
     });
   });
 
+  socket.on('pass', () => {
+    if (state.phase !== 'PLAYING') return;
+    const player = state.players.find((p) => p.id === socket.id);
+    if (!player) return;
+    io.emit('card_passed', { playerId: player.id });
+  });
+
+  socket.on('undo', () => {
+    if (state.phase !== 'PLAYING') return;
+    const player = state.players.find((p) => p.id === socket.id);
+    if (!player) return;
+    if (state.lastDropPlayerId !== player.id) return;
+
+    const lastPileEntry = state.pile.pop();
+    if (!lastPileEntry) return;
+
+    player.cards.push(...lastPileEntry.cards);
+    state.lastDropPlayerId = null;
+
+    io.emit('card_undone', { playerId: player.id });
+  });
+
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);
 
