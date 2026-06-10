@@ -50,9 +50,17 @@ function createTestServer() {
     if (active.length === 0) return;
 
     const currentPlayerId = players[currentTurnIndex]?.id;
-    const currentIdx = active.findIndex((p) => p.id === currentPlayerId);
-    const nextIdx = (currentIdx + 1) % active.length;
-    const nextPlayer = active[nextIdx];
+    let currentIdx = active.findIndex((p) => p.id === currentPlayerId);
+
+    if (currentIdx === -1) {
+      for (let i = currentTurnIndex + 1; i < players.length; i++) {
+        const idx = active.findIndex((p) => p.id === players[i].id);
+        if (idx !== -1) { currentIdx = idx - 1; break; }
+      }
+      if (currentIdx === -1) currentIdx = active.length - 1;
+    }
+
+    const nextPlayer = active[(currentIdx + 1) % active.length];
     currentTurnIndex = players.findIndex((p) => p.id === nextPlayer.id);
 
     const isNewRound = currentTopCombo === null;

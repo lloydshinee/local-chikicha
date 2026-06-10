@@ -1,8 +1,8 @@
-import type { Suit, Rank, Card, GamePhase } from '@backend/game';
+import type { Suit, Rank, Card, GamePhase } from './game-types';
 
 export type { Suit, Rank, Card, GamePhase };
 
-export const PLAYER_COLORS = ['#EF4444', '#3B82F6', '#22C55E', '#EAB308'];
+export const PLAYER_COLORS = ['#EF4444', '#3B82F6', '#22C55E', '#EAB308', '#F97316'];
 
 export interface LobbyPlayer {
   id: string;
@@ -43,20 +43,21 @@ export interface SpectateData {
 export interface CardDroppedData {
   playerId: string;
   cards: Card[];
+  comboType?: string;
 }
 
 export interface CardPassedData {
   playerId: string;
 }
 
-export interface PlayerLeftData {
+export interface CardArrangedData {
   playerId: string;
+  fromIndex: number;
+  toIndex: number;
 }
 
-export interface GameOverData {
-  loserId: string;
-  loserUsername: string;
-  cards: Card[];
+export interface PlayerLeftData {
+  playerId: string;
 }
 
 export interface CountdownData {
@@ -82,12 +83,6 @@ export interface GameOverData {
   cards: Card[];
   loserColor?: string;
   finishOrder?: FinishOrderEntry[];
-}
-
-export interface CardDroppedData {
-  playerId: string;
-  cards: Card[];
-  comboType?: string;
 }
 
 export function cardImagePath(card: Card): string {

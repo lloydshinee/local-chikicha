@@ -1,4 +1,4 @@
-import type { Card, Suit, Rank, ComboType, Combo } from './game';
+import type { Card, Suit, Rank, ComboType, Combo } from './game-types';
 
 export type { ComboType, Combo };
 

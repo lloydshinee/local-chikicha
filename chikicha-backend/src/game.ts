@@ -1,6 +1,13 @@
-import type { ComboType, Combo as ComboInfo } from './rules';
-
-export type { ComboType, ComboInfo };
+export type ComboType =
+  | 'SINGLE'
+  | 'PAIR'
+  | 'THREE'
+  | 'TWO_PAIR'
+  | 'FOUR'
+  | 'STRAIGHT'
+  | 'FLUSH'
+  | 'FULL_HOUSE'
+  | 'STRAIGHT_FLUSH';
 
 export type Suit = 'spades' | 'hearts' | 'diamonds' | 'clubs';
 export type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K';
@@ -9,6 +16,13 @@ export type GamePhase = 'LOBBY' | 'COUNTDOWN' | 'PLAYING' | 'GAME_OVER';
 export interface Card {
   suit: Suit;
   rank: Rank;
+}
+
+export interface Combo {
+  type: ComboType;
+  primaryRank: Rank;
+  primarySuit: Suit;
+  cards: Card[];
 }
 
 export interface Player {
@@ -32,14 +46,15 @@ export interface GameState {
   countdownTimer: ReturnType<typeof setTimeout> | null;
   gameOverTimer: ReturnType<typeof setTimeout> | null;
   currentTurnIndex: number;
-  currentTopCombo: ComboInfo | null;
+  currentTopCombo: Combo | null;
   passCount: number;
   firstPlayMade: boolean;
   finishOrder: { position: number; playerId: string; username: string; color: string }[];
 }
 
-export const PLAYER_COLORS = ['#EF4444', '#3B82F6', '#22C55E', '#EAB308'];
-export const MAX_PLAYERS = 4;
+export const PLAYER_COLORS = ['#EF4444', '#3B82F6', '#22C55E', '#EAB308', '#F97316'];
+export const MAX_PLAYERS = 5;
+export const MIN_PLAYERS = 2;
 
 export function createCard(suit: Suit, rank: Rank): Card {
   return { suit, rank };

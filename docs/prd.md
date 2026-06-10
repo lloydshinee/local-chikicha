@@ -53,34 +53,40 @@ A browser-based multiplayer game accessible over LAN. Players enter a username, 
 
 ### Player Model
 
-- Max 4 active players. Visitors 5+ are spectators.
-- Players are assigned colors by join order: Red `#EF4444`, Blue `#3B82F6`, Green `#22C55E`, Yellow `#EAB308`.
+- Max 5 active players (min 2). Visitors 6+ are spectators.
+- Players are assigned colors by join order: Red `#EF4444`, Blue `#3B82F6`, Green `#22C55E`, Yellow `#EAB308`, Orange `#F97316`.
 - When the game resets to lobby, all 4 slots open — first 4 who ready become players for the next round. No priority for previous players.
 
 ### Game State Machine
 
 ```
-LOBBY → (all 4 ready) → COUNTDOWN → (5s elapsed) → PLAYING → (1 player has cards) → GAME_OVER → (5s) → LOBBY
+LOBBY → (all ready, 2–5 players) → COUNTDOWN → (3s elapsed) → PLAYING → (1 player has cards) → GAME_OVER → (5s) → LOBBY
          ↑ abort if unready ↓
 ```
 
 ### Card Mechanics
 
-- **No game rules enforcement** — any cards can be dropped at any time. Players self-police.
-- **Free-for-all turns** — no turn enforcement. Anyone can drop or pass at any time.
+- **Combo validation is enforced**. Only valid poker-style combos can be dropped.
+- **Turn order is enforced**. Players take turns dropping or passing.
+- **First play must include 3♦** (three of diamonds).
+- Players must beat the current combo on the table to play. Same combo type required, higher rank wins (rank ties broken by suit).
+- **Bomb combos**: Four of a Kind and Straight Flush beat ANY combo. Straight Flush beats Four of a Kind. Higher bomb of same type beats lower bomb (rank, then suit).
+- **Valid combos**: Single (1), Pair (2), Three of a Kind (3), Two Pair (4, sequential ranks only), Four of a Kind (4), Straight (5 sequential, wraps allowed), Flush (5 same suit), Full House (3+2), Straight Flush (5 sequential same suit).
+- **Rank order** (low → high): 3, 4, 5, 6, 7, 8, 9, 10, J, Q, K, A, 2.
+- **Suit order** (low → high): diamonds, clubs, hearts, spades.
+- If all other active players pass consecutively, the last dropper wins the round and starts a new one (can play any combo).
 - **Selection**: click-to-toggle on each card. Selected cards lift 10px upward and display a glowing border in the player's color.
-- **Drop**: selected cards animate (200ms slide) from hand to the central area. Cards are outlined in the dropper's color.
-- **Central area**: cards grouped chronologically by round (not by player). All drops remain visible for the game's duration.
+- **Drop**: selected cards animate from hand to the central area. Cards are outlined in the dropper's color.
+- **Central area**: shows current and previous drop.
 - **Pass**: 🤚 emoji speech bubble appears above the passing player's hand area, fades after 3 seconds.
-- **Undo**: visible only for the most recent dropper, only until another player drops. Clicking undo returns cards to that player's hand and removes them from the central area.
-- **Hand arrangement**: select a card, press left/right arrow keys — the card shifts one position, pushing adjacent cards aside.
+- **Hand arrangement**: drag and drop cards to rearrange.
 
 ### Card Display
 
 - Card images from `playing-cards/` — 242×340 PNGs, displayed at 60% scale (~145×204 px).
 - Light card back (`back_light.png`) for face-down cards on opponents' hands.
 - Own hand: loose flat overlapping fan, face-up.
-- Other players' hands: row of card backs when ≤10 cards; collapsed stack with count badge when >10 cards.
+- Other players' hands: single face-down card with count badge.
 - The central area uses the same 60% scale as hands.
 
 ### UI Layout
@@ -88,8 +94,8 @@ LOBBY → (all 4 ready) → COUNTDOWN → (5s elapsed) → PLAYING → (1 player
 - Poker-table style with self at bottom, opponents at top/left/right.
 - Lobby screen: title "chikicha" centered at top, 4 player slots with name + color dot + ready indicator, spectator list below.
 - Username entry: simple centered form with title, text input, and Join button.
-- Buttons: Drop, Pass, Undo in the player's hand area.
-- Arrow keys: keyboard-only for card arrangement (no on-screen buttons).
+- Buttons: Drop, Pass in the player's hand area.
+- Drag and drop: for card arrangement (replaces keyboard arrows).
 
 ### Sound Effects (Web Audio API)
 
@@ -198,10 +204,9 @@ None — the project has no existing tests. This proposal establishes the testin
 - Accessibility (screen readers, ARIA)
 - Spectator chat or interaction
 - Player-elected card back themes
-- Drag-and-drop card interactions
+- Drag-and-drop card interactions (✅ implemented)
 - Timer enforcement for turns
 - AI/bot players
-- Rule validation or card legality checking
 - Localization / i18n
 
 ## Further Notes

@@ -213,30 +213,6 @@ describe('detectCombo', () => {
     });
   });
 
-  describe('FOUR', () => {
-    it('detects four of a kind with kicker', () => {
-      const combo = detectCombo([
-        c('hearts', '8'),
-        c('diamonds', '8'),
-        c('clubs', '8'),
-        c('spades', '8'),
-        c('hearts', '3'),
-      ]);
-      expect(combo?.type).toBe('FOUR');
-      expect(combo?.primaryRank).toBe('8');
-    });
-
-    it('returns null for duplicated ranks that are not 4+1', () => {
-      expect(detectCombo([
-        c('hearts', '8'),
-        c('diamonds', '8'),
-        c('clubs', '8'),
-        c('spades', '8'),
-        c('hearts', '8'),
-      ])).toBeNull();
-    });
-  });
-
   describe('STRAIGHT_FLUSH', () => {
     it('detects straight flush over four of a kind', () => {
       const combo = detectCombo([
@@ -267,12 +243,81 @@ describe('detectCombo', () => {
       expect(detectCombo([])).toBeNull();
     });
 
-    it('returns null for 4 cards', () => {
+    it('returns null for 5-of-a-kind', () => {
       expect(detectCombo([
+        c('hearts', '8'),
+        c('diamonds', '8'),
+        c('clubs', '8'),
+        c('spades', '8'),
+        c('hearts', '8'),
+      ])).toBeNull();
+    });
+
+    it('returns null for 4+1 kicker', () => {
+      expect(detectCombo([
+        c('hearts', '8'),
+        c('diamonds', '8'),
+        c('clubs', '8'),
+        c('spades', '8'),
         c('hearts', '3'),
-        c('diamonds', '4'),
-        c('clubs', '5'),
-        c('spades', '6'),
+      ])).toBeNull();
+    });
+  });
+
+  describe('TWO_PAIR', () => {
+    it('detects sequential two pair (7-7-8-8)', () => {
+      const combo = detectCombo([
+        c('hearts', '7'), c('diamonds', '7'),
+        c('clubs', '8'), c('spades', '8'),
+      ]);
+      expect(combo?.type).toBe('TWO_PAIR');
+      expect(combo?.primaryRank).toBe('8');
+    });
+
+    it('detects sequential two pair (J-J-Q-Q)', () => {
+      const combo = detectCombo([
+        c('hearts', 'J'), c('diamonds', 'J'),
+        c('clubs', 'Q'), c('spades', 'Q'),
+      ]);
+      expect(combo?.type).toBe('TWO_PAIR');
+      expect(combo?.primaryRank).toBe('Q');
+    });
+
+    it('detects sequential two pair (A-A-2-2)', () => {
+      const combo = detectCombo([
+        c('hearts', 'A'), c('diamonds', 'A'),
+        c('clubs', '2'), c('spades', '2'),
+      ]);
+      expect(combo?.type).toBe('TWO_PAIR');
+      expect(combo?.primaryRank).toBe('2');
+    });
+
+    it('returns null for non-sequential two pair (7-7-9-9)', () => {
+      expect(detectCombo([
+        c('hearts', '7'), c('diamonds', '7'),
+        c('clubs', '9'), c('spades', '9'),
+      ])).toBeNull();
+    });
+  });
+
+  describe('FOUR', () => {
+    it('detects four of a kind (4 cards)', () => {
+      const combo = detectCombo([
+        c('hearts', '8'),
+        c('diamonds', '8'),
+        c('clubs', '8'),
+        c('spades', '8'),
+      ]);
+      expect(combo?.type).toBe('FOUR');
+      expect(combo?.primaryRank).toBe('8');
+    });
+
+    it('returns null for three of a kind when 4 cards', () => {
+      expect(detectCombo([
+        c('hearts', '8'),
+        c('diamonds', '8'),
+        c('clubs', '8'),
+        c('spades', '9'),
       ])).toBeNull();
     });
   });
@@ -303,48 +348,81 @@ describe('canBeat', () => {
     expect(canBeat(a, b)).toBe(false);
   });
 
-  it('returns false for different types', () => {
-    const pair = detectCombo([c('hearts', 'A'), c('spades', 'A')])!;
-    const single = detectCombo([c('spades', '2')])!;
-    expect(canBeat(pair, single)).toBe(false);
-    expect(canBeat(single, pair)).toBe(false);
-  });
+    it('returns false for different types', () => {
+      const pair = detectCombo([c('hearts', 'A'), c('spades', 'A')])!;
+      const single = detectCombo([c('spades', '2')])!;
+      expect(canBeat(pair, single)).toBe(false);
+      expect(canBeat(single, pair)).toBe(false);
+    });
+
+    it('two pair cannot beat a different type', () => {
+      const tp = detectCombo([
+        c('hearts', '7'), c('diamonds', '7'), c('clubs', '8'), c('spades', '8'),
+      ])!;
+      const single = detectCombo([c('spades', '2')])!;
+      const pair = detectCombo([c('hearts', 'A'), c('spades', 'A')])!;
+      expect(canBeat(tp, single)).toBe(false);
+      expect(canBeat(tp, pair)).toBe(false);
+    });
 
   describe('bomb rule', () => {
-    it('four of a kind beats single 2', () => {
+    it('four of a kind beats any non-bomb combo', () => {
       const four = detectCombo([
-        c('hearts', '3'),
-        c('diamonds', '3'),
-        c('clubs', '3'),
-        c('spades', '3'),
-        c('hearts', '4'),
+        c('hearts', '3'), c('diamonds', '3'), c('clubs', '3'), c('spades', '3'),
       ])!;
       const single2 = detectCombo([c('spades', '2')])!;
+      const pairA = detectCombo([c('hearts', 'A'), c('spades', 'A')])!;
+      const full = detectCombo([
+        c('hearts', 'K'), c('diamonds', 'K'), c('spades', 'K'), c('hearts', '2'), c('diamonds', '2'),
+      ])!;
       expect(canBeat(four, single2)).toBe(true);
+      expect(canBeat(four, pairA)).toBe(true);
+      expect(canBeat(four, full)).toBe(true);
     });
 
-    it('four of a kind does not beat pair of 2s', () => {
+    it('straight flush beats any non-bomb combo', () => {
+      const sf = detectCombo([
+        c('spades', '3'), c('spades', '4'), c('spades', '5'), c('spades', '6'), c('spades', '7'),
+      ])!;
       const four = detectCombo([
-        c('hearts', '3'),
-        c('diamonds', '3'),
-        c('clubs', '3'),
-        c('spades', '3'),
-        c('hearts', '4'),
+        c('hearts', 'K'), c('diamonds', 'K'), c('clubs', 'K'), c('spades', 'K'),
       ])!;
       const pair2 = detectCombo([c('hearts', '2'), c('spades', '2')])!;
-      expect(canBeat(four, pair2)).toBe(false);
+      expect(canBeat(sf, pair2)).toBe(true);
+      expect(canBeat(sf, four)).toBe(true);
     });
 
-    it('four of a kind does not beat single non-2', () => {
-      const four = detectCombo([
-        c('hearts', '3'),
-        c('diamonds', '3'),
-        c('clubs', '3'),
-        c('spades', '3'),
-        c('hearts', '4'),
+    it('higher four of a kind beats lower four of a kind', () => {
+      const highFour = detectCombo([
+        c('hearts', '8'), c('diamonds', '8'), c('clubs', '8'), c('spades', '8'),
       ])!;
-      const singleA = detectCombo([c('spades', 'A')])!;
-      expect(canBeat(four, singleA)).toBe(false);
+      const lowFour = detectCombo([
+        c('hearts', '3'), c('diamonds', '3'), c('clubs', '3'), c('spades', '3'),
+      ])!;
+      expect(canBeat(highFour, lowFour)).toBe(true);
+      expect(canBeat(lowFour, highFour)).toBe(false);
+    });
+
+    it('higher straight flush beats lower straight flush', () => {
+      const highSf = detectCombo([
+        c('clubs', '8'), c('clubs', '9'), c('clubs', '10'), c('clubs', 'J'), c('clubs', 'Q'),
+      ])!;
+      const lowSf = detectCombo([
+        c('spades', '3'), c('spades', '4'), c('spades', '5'), c('spades', '6'), c('spades', '7'),
+      ])!;
+      expect(canBeat(highSf, lowSf)).toBe(true);
+      expect(canBeat(lowSf, highSf)).toBe(false);
+    });
+
+    it('straight flush beats four of a kind', () => {
+      const sf = detectCombo([
+        c('diamonds', '3'), c('diamonds', '4'), c('diamonds', '5'), c('diamonds', '6'), c('diamonds', '7'),
+      ])!;
+      const four = detectCombo([
+        c('hearts', '2'), c('diamonds', '2'), c('clubs', '2'), c('spades', '2'),
+      ])!;
+      expect(canBeat(sf, four)).toBe(true);
+      expect(canBeat(four, sf)).toBe(false);
     });
   });
 
@@ -365,6 +443,30 @@ describe('canBeat', () => {
         c('hearts', '10'), c('diamonds', 'J'), c('clubs', 'Q'), c('spades', 'K'), c('hearts', 'A'),
       ])!;
       expect(canBeat(high, low)).toBe(true);
+    });
+  });
+
+  describe('two pair comparison', () => {
+    it('higher top pair wins', () => {
+      const high = detectCombo([
+        c('hearts', '9'), c('diamonds', '9'), c('clubs', '10'), c('spades', '10'),
+      ])!;
+      const low = detectCombo([
+        c('hearts', '7'), c('diamonds', '7'), c('clubs', '8'), c('spades', '8'),
+      ])!;
+      expect(canBeat(high, low)).toBe(true);
+      expect(canBeat(low, high)).toBe(false);
+    });
+
+    it('same pairs, higher suit wins', () => {
+      const high = detectCombo([
+        c('hearts', '7'), c('spades', '7'), c('hearts', '8'), c('spades', '8'),
+      ])!;
+      const low = detectCombo([
+        c('diamonds', '7'), c('clubs', '7'), c('diamonds', '8'), c('clubs', '8'),
+      ])!;
+      expect(canBeat(high, low)).toBe(true);
+      expect(canBeat(low, high)).toBe(false);
     });
   });
 

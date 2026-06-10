@@ -1,17 +1,13 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../hooks/useSocket';
 import { useSound } from '../hooks/useSound';
+import { useGameLogic, getOpponentPosition, getOpponentStyles } from '../hooks/useGameLogic';
+import { useComboValidator, COMBO_LABELS } from '../hooks/useComboValidator';
+import { useCardScaling } from '../hooks/useCardScaling';
 import { PlayerHand } from '../components/PlayerHand';
 import { CardComponent } from '../components/CardComponent';
-import { detectCombo, canBeat } from '@backend/rules';
-import type { ComboType } from '@backend/rules';
-import type {
-  Card, GamePlayer, CardDroppedData,
-  CardPassedData, CardArrangedData,
-  PlayerLeftData, GameOverData, TurnChangeData,
-  FinishOrderEntry,
-} from '../types';
+import type { Card, GamePlayer } from '../types';
+import type { FinishOrderEntry } from '../types';
 
 interface Props {
   initialData: {
@@ -24,223 +20,36 @@ interface Props {
   isSpectator?: boolean;
 }
 
-interface PileEntry {
-  playerId: string;
-  cards: Card[];
-  comboType?: ComboType;
-}
-
-const COMBO_LABELS: Record<ComboType, string> = {
-  SINGLE: 'Single',
-  PAIR: 'Pair',
-  THREE: 'Three of a Kind',
-  STRAIGHT: 'Straight',
-  FLUSH: 'Flush',
-  FULL_HOUSE: 'Full House',
-  FOUR: 'Four of a Kind',
-  STRAIGHT_FLUSH: 'Straight Flush',
-};
-
 export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
   const { socket } = useSocket();
   const { playDrop, playPass, playGameOver } = useSound();
-  const [hand, setHand] = useState<Card[]>(initialData.hand);
-  const [opponents, setOpponents] = useState<GamePlayer[]>(initialData.players);
-  const myColor = initialData.myColor;
-  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
-  const [pile, setPile] = useState<PileEntry[]>([]);
-  const [passBubbles, setPassBubbles] = useState<{ id: string; playerId: string }[]>([]);
-  const [gameOver, setGameOver] = useState<GameOverData | null>(null);
-  const [currentTurnId, setCurrentTurnId] = useState<string>(initialData.currentTurnPlayerId || '');
-  const [isNewRound, setIsNewRound] = useState(true);
-  const [currentTopCombo, setCurrentTopCombo] = useState<ReturnType<typeof detectCombo>>(null);
-  const isMyTurn = !isSpectator && currentTurnId === socket?.id;
 
-  const selectedCards = useMemo(() => {
-    return Array.from(selectedIndices).sort((a, b) => a - b).map((i) => hand[i]).filter(Boolean);
-  }, [selectedIndices, hand]);
+  const {
+    hand, opponents, myColor, selectedIndices,
+    pile, passBubbles, gameOver,
+    currentTurnId, isNewRound, currentTopCombo,
+    isMyTurn,
+    toggleCard, handleDrop, handlePass, handleArrange,
+    turnPlayer, turnPlayerIsMe,
+    latestEntry, prevEntry,
+    getOwnerColor, getPlayerName,
+  } = useGameLogic({
+    socket,
+    initialData,
+    isSpectator,
+    onGameOver,
+    playDrop,
+    playPass,
+    playGameOver,
+  });
 
-  const selectedCombo = useMemo(() => {
-    if (selectedCards.length === 0) return null;
-    return detectCombo(selectedCards);
-  }, [selectedCards]);
+  const { selectedCombo, canPlay, validationMessage } = useComboValidator({
+    selectedIndices,
+    hand,
+    currentTopCombo,
+  });
 
-  const canPlay = useMemo(() => {
-    if (selectedIndices.size === 0) return false;
-    if (!selectedCombo) return false;
-    if (!currentTopCombo) return true;
-    return canBeat(selectedCombo, currentTopCombo);
-  }, [selectedIndices, selectedCombo, currentTopCombo]);
-
-  const validationMessage = useMemo(() => {
-    if (selectedIndices.size === 0) return null;
-    if (!selectedCombo) return 'Invalid combination';
-    if (currentTopCombo && !canBeat(selectedCombo, currentTopCombo)) {
-      const topLabel = COMBO_LABELS[currentTopCombo.type];
-      return `Must beat ${topLabel}`;
-    }
-    return null;
-  }, [selectedIndices, selectedCombo, currentTopCombo]);
-
-  const handleCardDropped = useCallback((data: CardDroppedData) => {
-    playDrop();
-    setPile((prev) => [...prev, { playerId: data.playerId, cards: data.cards, comboType: data.comboType as ComboType }]);
-    setIsNewRound(false);
-
-    if (data.playerId === socket?.id) {
-      setHand((prev) => {
-        const dropKeys = new Set(data.cards.map((c) => `${c.suit}-${c.rank}`));
-        return prev.filter((c) => !dropKeys.has(`${c.suit}-${c.rank}`));
-      });
-      setSelectedIndices(new Set());
-    } else {
-      setOpponents((prev) =>
-        prev.map((opp) =>
-          opp.id === data.playerId
-            ? { ...opp, cardCount: opp.cardCount - data.cards.length }
-            : opp
-        )
-      );
-    }
-  }, [socket?.id]);
-
-  const handleCardPassed = useCallback((data: CardPassedData) => {
-    playPass();
-    const bubbleId = `${data.playerId}-${Date.now()}`;
-    setPassBubbles((prev) => [...prev, { id: bubbleId, playerId: data.playerId }]);
-    setTimeout(() => {
-      setPassBubbles((prev) => prev.filter((b) => b.id !== bubbleId));
-    }, 3000);
-  }, []);
-
-  const handleCardArranged = useCallback((data: CardArrangedData) => {
-    if (data.playerId === socket?.id) {
-      setHand((prev) => {
-        const next = [...prev];
-        const [card] = next.splice(data.fromIndex, 1);
-        next.splice(data.toIndex, 0, card);
-        return next;
-      });
-    }
-  }, [socket?.id]);
-
-  const handlePlayerLeft = useCallback((data: PlayerLeftData) => {
-    setOpponents((prev) => prev.filter((o) => o.id !== data.playerId));
-  }, []);
-
-  const handleTurnChange = useCallback((data: TurnChangeData) => {
-    setCurrentTurnId(data.playerId);
-    setIsNewRound(data.isNewRound ?? false);
-    if (data.currentCombo === null) {
-      setCurrentTopCombo(null);
-    } else if (data.currentCombo) {
-      setCurrentTopCombo({
-        type: data.currentCombo.type as ComboType,
-        primaryRank: data.currentCombo.primaryRank as any,
-        primarySuit: data.currentCombo.primarySuit as any,
-        cards: [],
-      });
-    }
-  }, []);
-
-  const handleGameOverEvent = useCallback((data: GameOverData) => {
-    playGameOver();
-    setGameOver(data);
-  }, []);
-
-  const handleLobbyUpdate = useCallback(() => {
-    setGameOver(null);
-    onGameOver();
-  }, [onGameOver]);
-
-  useEffect(() => {
-    if (!socket) return;
-
-    socket.on('card_dropped', handleCardDropped as any);
-    socket.on('card_passed', handleCardPassed);
-    socket.on('card_arranged', handleCardArranged);
-    socket.on('player_left', handlePlayerLeft);
-    socket.on('turn_change', handleTurnChange as any);
-    socket.on('game_over', handleGameOverEvent as any);
-    socket.on('lobby_update', handleLobbyUpdate);
-
-    return () => {
-      socket.off('card_dropped', handleCardDropped as any);
-      socket.off('card_passed', handleCardPassed);
-      socket.off('card_arranged', handleCardArranged);
-      socket.off('player_left', handlePlayerLeft);
-      socket.off('turn_change', handleTurnChange as any);
-      socket.off('game_over', handleGameOverEvent as any);
-      socket.off('lobby_update', handleLobbyUpdate);
-    };
-  }, [socket, handleCardDropped, handleCardPassed, handleCardArranged, handlePlayerLeft, handleTurnChange, handleGameOverEvent, handleLobbyUpdate]);
-
-  useEffect(() => {
-    if (selectedIndices.size !== 1) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        const fromIndex = Array.from(selectedIndices)[0];
-        const toIndex = e.key === 'ArrowLeft' ? fromIndex - 1 : fromIndex + 1;
-        if (toIndex < 0 || toIndex >= hand.length) return;
-        socket?.emit('arrange', { fromIndex, toIndex });
-        setSelectedIndices(new Set([toIndex]));
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIndices, hand.length, socket]);
-
-  const toggleCard = (index: number) => {
-    setSelectedIndices((prev) => {
-      const next = new Set(prev);
-      if (next.has(index)) {
-        next.delete(index);
-      } else {
-        next.add(index);
-      }
-      return next;
-    });
-  };
-
-  const handleDrop = () => {
-    if (selectedIndices.size === 0 || !socket || !isMyTurn) return;
-    const indices = Array.from(selectedIndices);
-    socket.emit('drop', { cardIndices: indices });
-  };
-
-  const handlePass = () => {
-    if (!socket || !isMyTurn) return;
-    socket.emit('pass');
-  };
-
-  const getOpponentPosition = (index: number): 'top' | 'left' | 'right' => {
-    const positions: Array<'top' | 'left' | 'right'> = ['top', 'left', 'right'];
-    return positions[index] ?? 'left';
-  };
-
-  const getOpponentStyles = (pos: string) => {
-    switch (pos) {
-      case 'top': return 'top-4 left-1/2 -translate-x-1/2';
-      case 'left': return 'left-4 top-1/2 -translate-y-1/2 flex-col';
-      case 'right': return 'right-4 top-1/2 -translate-y-1/2 flex-col';
-      default: return '';
-    }
-  };
-
-  const turnPlayer = opponents.find((o) => o.id === currentTurnId);
-  const turnPlayerIsMe = currentTurnId === socket?.id;
-
-  const latestEntry = pile[pile.length - 1];
-  const prevEntry = pile[pile.length - 2];
-
-  const getOwnerColor = (playerId: string) =>
-    opponents.find((o) => o.id === playerId)?.color ?? myColor;
-
-  const getPlayerName = (playerId: string) =>
-    opponents.find((o) => o.id === playerId)?.username ?? 'You';
+  const { selfCardScale, selfCardOverlap } = useCardScaling(hand.length);
 
   return (
     <div className="min-h-screen bg-green-700 relative overflow-hidden">
@@ -256,8 +65,8 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
       />
 
       {/* Turn indicator */}
-      <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10">
-        <div className="bg-black/40 text-white text-sm px-4 py-1 rounded-full">
+      <div className="absolute top-1 sm:top-2 left-1/2 -translate-x-1/2 z-10">
+        <div className="bg-black/40 text-white text-xs sm:text-sm px-2 sm:px-4 py-0.5 sm:py-1 rounded-full">
           {turnPlayerIsMe ? (
             <span className="font-bold">&#9654; Your turn</span>
           ) : turnPlayer ? (
@@ -295,11 +104,11 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
       {/* Opponents */}
       <div className="absolute inset-0 pointer-events-none">
         {opponents.map((opp, i) => {
-          const pos = getOpponentPosition(i);
+          const pos = getOpponentPosition(i, opponents.length);
           const isTurn = opp.id === currentTurnId;
           return (
             <div key={opp.id} className={`absolute ${getOpponentStyles(pos)} flex items-center gap-2`}>
-              <div className={`text-white text-xs font-semibold px-2 py-1 rounded whitespace-nowrap transition-colors ${
+              <div className={`text-white text-[10px] sm:text-xs font-semibold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded whitespace-nowrap transition-colors ${
                 isTurn ? 'bg-yellow-500/60 ring-2 ring-yellow-400' : 'bg-black/30'
               }`}>
                 <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: opp.color }} />
@@ -310,7 +119,6 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
                 selectedIndices={new Set()}
                 isSelf={false}
                 cardCount={opp.cardCount}
-                position={pos}
               />
             </div>
           );
@@ -352,7 +160,7 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
                 transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                 className="flex flex-col items-center gap-1"
               >
-                <div className="text-white text-xs font-semibold bg-black/50 px-2 py-0.5 rounded-full"
+                <div className="text-white text-[10px] sm:text-xs font-semibold bg-black/50 px-1.5 sm:px-2 py-0.5 rounded-full"
                   style={{ boxShadow: `0 0 8px ${getOwnerColor(latestEntry.playerId)}88` }}
                 >
                   {latestEntry.comboType ? COMBO_LABELS[latestEntry.comboType] : 'Drop'} by {getPlayerName(latestEntry.playerId)}
@@ -366,7 +174,7 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
                         boxShadow: `0 0 0 4px ${getOwnerColor(latestEntry.playerId)}, 0 0 16px ${getOwnerColor(latestEntry.playerId)}88`,
                       }}
                     >
-                      <CardComponent card={card} scale={0.6} />
+                    <CardComponent card={card} scale={0.45} />
                     </div>
                   ))}
                 </div>
@@ -383,7 +191,7 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
             initial={{ opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
-            className="bg-yellow-500/90 text-black text-lg font-bold px-6 py-2 rounded-full shadow-xl"
+            className="bg-yellow-500/90 text-black text-base sm:text-lg font-bold px-4 sm:px-6 py-1 sm:py-2 rounded-full shadow-xl"
           >
             New round — play any combination!
           </motion.div>
@@ -398,29 +206,29 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
           </div>
         </div>
       ) : (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-          <div className="flex items-center justify-between mb-2">
-            <div className={`text-white text-xs font-semibold px-2 py-1 rounded transition-colors ${
+        <div className="absolute bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 max-w-[100vw] overflow-x-auto px-2">
+          <div className="flex items-center justify-between mb-1 sm:mb-2 flex-nowrap gap-2">
+            <div className={`text-white text-[10px] sm:text-xs font-semibold px-1.5 sm:px-2 py-0.5 sm:py-1 rounded whitespace-nowrap transition-colors ${
               isMyTurn ? 'bg-yellow-500/60 ring-2 ring-yellow-400' : 'bg-black/30'
             }`}>
               <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: myColor }} />
-              You ({hand.length} cards)
-              {isMyTurn && ' — Your turn'}
+              You ({hand.length})
+              {isMyTurn && ' · Turn'}
             </div>
-            <div className="flex flex-col items-end gap-1 ml-4">
-              <div className="flex gap-2">
+            <div className="flex flex-col items-end gap-0.5 sm:gap-1 shrink-0">
+              <div className="flex gap-1 sm:gap-2">
                 {isMyTurn && (
                   <>
                     <button
                       onClick={handlePass}
-                      className="px-3 py-1.5 bg-gray-500 hover:bg-gray-400 text-white text-sm font-bold rounded-lg transition-colors"
+                      className="px-2 sm:px-3 py-1 sm:py-1.5 bg-gray-500 hover:bg-gray-400 text-white text-xs sm:text-sm font-bold rounded-lg transition-colors"
                     >
                       Pass
                     </button>
                     <button
                       onClick={handleDrop}
                       disabled={!canPlay}
-                      className={`px-4 py-1.5 text-sm font-bold rounded-lg transition-colors ${
+                      className={`px-3 sm:px-4 py-1 sm:py-1.5 text-xs sm:text-sm font-bold rounded-lg transition-colors ${
                         canPlay
                           ? 'bg-yellow-500 hover:bg-yellow-400 text-black'
                           : 'bg-gray-600 text-gray-400 cursor-not-allowed'
@@ -431,18 +239,18 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
                   </>
                 )}
                 {!isMyTurn && (
-                  <span className="text-white/50 text-xs px-3 py-1.5">
+                  <span className="text-white/50 text-[10px] sm:text-xs px-2 sm:px-3 py-1 sm:py-1.5">
                     {turnPlayer ? `Waiting for ${turnPlayerIsMe ? 'you' : turnPlayer.username}...` : 'Waiting...'}
                   </span>
                 )}
               </div>
               {validationMessage && isMyTurn && (
-                <div className="text-red-300 text-xs">
+                <div className="text-red-300 text-[10px] sm:text-xs">
                   {validationMessage}
                 </div>
               )}
               {!validationMessage && canPlay && selectedCombo && isMyTurn && (
-                <div className="text-green-300 text-xs">
+                <div className="text-green-300 text-[10px] sm:text-xs">
                   {COMBO_LABELS[selectedCombo.type]}
                 </div>
               )}
@@ -454,9 +262,12 @@ export function Game({ initialData, onGameOver, isSpectator = false }: Props) {
             playerColor={myColor}
             isSelf
             onCardClick={toggleCard}
+            onArrange={handleArrange}
+            scale={selfCardScale}
+            overlap={selfCardOverlap}
           />
-          <div className="text-center mt-2 text-white/40 text-xs">
-            Click a card, then ← → to rearrange
+          <div className="text-center mt-1 sm:mt-2 text-white/40 text-[10px] sm:text-xs">
+            Drag to rearrange · Click to select
           </div>
         </div>
       )}

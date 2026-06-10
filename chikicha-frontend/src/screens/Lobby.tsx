@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../hooks/useSocket';
 import { useSound } from '../hooks/useSound';
+import { MAX_PLAYERS } from '../game-types';
 import type { LobbyUpdateData, Card, GamePlayer } from '../types';
 
 interface GameData {
@@ -23,7 +24,7 @@ interface Props {
   onSpectate: (data: SpectateData) => void;
 }
 
-export function Lobby({ username, onGameStart, onSpectate }: Props) {
+export function Lobby({ onGameStart, onSpectate }: Props) {
   const { socket } = useSocket();
   const { playCountdownTick, playCountdownFinal } = useSound();
   const [lobby, setLobby] = useState<LobbyUpdateData>({ players: [], spectators: [] });
@@ -31,16 +32,15 @@ export function Lobby({ username, onGameStart, onSpectate }: Props) {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [amSpectator, setAmSpectator] = useState(false);
 
-  const handleGameStartEvent = useCallback((data: { hand: Card[]; players: GamePlayer[]; currentTurnPlayerId?: string }) => {
-    const myPlayer = lobby.players.find((p) => p.id === socket?.id);
+  const handleGameStartEvent = useCallback((data: { hand: Card[]; players: GamePlayer[]; myColor: string; currentTurnPlayerId?: string }) => {
     setCountdown(null);
     onGameStart({
       hand: data.hand,
       players: data.players,
-      myColor: myPlayer?.color ?? '',
+      myColor: data.myColor,
       currentTurnPlayerId: data.currentTurnPlayerId,
     });
-  }, [socket, lobby.players, onGameStart]);
+  }, [onGameStart]);
 
   const handleSpectateEvent = useCallback((data: SpectateData) => {
     onSpectate(data);
@@ -49,13 +49,11 @@ export function Lobby({ username, onGameStart, onSpectate }: Props) {
   useEffect(() => {
     if (!socket) return;
 
-    // Request current lobby state on mount (important after game over)
     socket.emit('request_lobby');
 
     const handleLobbyUpdate = (data: LobbyUpdateData) => {
       setLobby(data);
       setAmSpectator(data.spectators.some((s) => s.id === socket.id));
-      // Sync ready state from server
       const me = data.players.find((p) => p.id === socket?.id);
       if (me) {
         setReady(me.ready);
@@ -91,6 +89,7 @@ export function Lobby({ username, onGameStart, onSpectate }: Props) {
   }, [socket, handleGameStartEvent, handleSpectateEvent]);
 
   const isPlayer = lobby.players.some((p) => p.id === socket?.id);
+  const canJoinSlot = amSpectator && lobby.players.length < MAX_PLAYERS;
 
   const toggleReady = () => {
     const newReady = !ready;
@@ -98,43 +97,43 @@ export function Lobby({ username, onGameStart, onSpectate }: Props) {
     socket?.emit('ready', { ready: newReady });
   };
 
+  const becomeSpectator = () => {
+    socket?.emit('become_spectator');
+  };
+
+  const joinSlot = () => {
+    socket?.emit('join_slot');
+  };
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-gray-50 to-gray-200 p-8">
-      <h1 className="text-3xl font-bold text-gray-800 mb-8">chikicha</h1>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-gray-50 to-gray-200 p-4 sm:p-8">
+      <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-6 sm:mb-8">chikicha</h1>
 
       <div className="mb-4 text-sm text-gray-500">
-        {!isPlayer ? 'You are a spectator' : amSpectator ? 'Spectating...' : 'Waiting for players...'}
+        {!isPlayer ? 'You are a spectator' : amSpectator ? 'Spectating...' : `Players: ${lobby.players.length}/${MAX_PLAYERS}`}
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-8">
-        {[0, 1, 2, 3].map((i) => {
-          const player = lobby.players[i];
-          const isMe = player?.id === socket?.id;
+      <div className="w-full max-w-sm flex flex-col gap-2 mb-6">
+        {lobby.players.map((player) => {
+          const isMe = player.id === socket?.id;
           return (
             <div
-              key={i}
-              className={`w-36 h-24 rounded-xl border-2 flex flex-col items-center justify-center text-sm font-medium transition-colors ${
-                player
-                  ? 'border-gray-300 bg-white shadow-sm'
-                  : 'border-dashed border-gray-300 bg-gray-100/50 text-gray-400'
-              }`}
+              key={player.id}
+              className="flex items-center justify-between gap-3 rounded-xl border-2 border-gray-300 bg-white shadow-sm px-4 py-3"
             >
-              {player ? (
-                <>
-                  <div className="flex items-center gap-1.5">
-                    <div
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: player.color }}
-                    />
-                    <span className="text-gray-700 text-sm">{player.username}</span>
-                  </div>
-                  <span className={`text-xs mt-1 ${player.ready ? 'text-green-500 font-semibold' : 'text-gray-400'}`}>
-                    {player.ready ? '\u2713 Ready' : 'Not ready'}
-                  </span>
-                  {isMe && (
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: player.color }} />
+                <span className="text-gray-700 text-sm font-medium truncate">{player.username}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className={`text-xs font-semibold ${player.ready ? 'text-green-500' : 'text-gray-400'}`}>
+                  {player.ready ? '\u2713 Ready' : 'Not ready'}
+                </span>
+                {isMe && (
+                  <>
                     <button
                       onClick={toggleReady}
-                      className={`mt-1.5 px-3 py-0.5 rounded text-xs font-semibold transition-colors ${
+                      className={`px-3 py-0.5 rounded text-xs font-semibold transition-colors ${
                         ready
                           ? 'bg-red-100 text-red-600 hover:bg-red-200'
                           : 'bg-green-100 text-green-600 hover:bg-green-200'
@@ -142,20 +141,71 @@ export function Lobby({ username, onGameStart, onSpectate }: Props) {
                     >
                       {ready ? 'Unready' : 'Ready'}
                     </button>
-                  )}
-                </>
-              ) : (
-                <span className="text-xs">Empty</span>
-              )}
+                    <button
+                      onClick={becomeSpectator}
+                      className="px-2 py-0.5 rounded text-xs font-semibold bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+                    >
+                      Watch
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           );
         })}
+
+        {Array.from({ length: Math.max(0, MAX_PLAYERS - lobby.players.length) }).map((_, i) => (
+          <div
+            key={`empty-${i}`}
+            className="flex items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-100/50 px-4 py-3"
+          >
+            <span className="text-xs text-gray-400">
+              Empty slot{canJoinSlot ? ' — ' : ''}
+              {canJoinSlot && (
+                <button
+                  onClick={joinSlot}
+                  className="text-blue-500 hover:text-blue-600 font-semibold"
+                >
+                  Join
+                </button>
+              )}
+            </span>
+          </div>
+        ))}
       </div>
 
       {lobby.spectators.length > 0 && (
-        <div className="text-xs text-gray-400">
-          Spectators: {lobby.spectators.map((s) => s.username).join(', ')}
+        <div className="w-full max-w-sm mb-4">
+          <div className="text-xs text-gray-400 mb-1 font-semibold">Spectators:</div>
+          <div className="flex flex-col gap-1">
+            {lobby.spectators.map((spec) => (
+              <div key={spec.id} className="flex items-center gap-2 text-xs text-gray-500">
+                <span>{spec.username}</span>
+                {spec.id === socket?.id && (
+                  <>
+                    <span className="text-gray-300">(you)</span>
+                    {canJoinSlot && (
+                      <button
+                        onClick={joinSlot}
+                        className="text-blue-500 hover:text-blue-600 font-semibold"
+                      >
+                        Join game
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
+      )}
+
+      {lobby.players.length === 1 && isPlayer && (
+        <div className="text-xs text-amber-500 mb-2">Waiting for at least 1 more player...</div>
+      )}
+
+      {!isPlayer && !amSpectator && lobby.players.length < MAX_PLAYERS && (
+        <div className="text-xs text-gray-400">Game is full — spectating.</div>
       )}
 
       {countdown !== null && (

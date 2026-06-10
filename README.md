@@ -34,17 +34,21 @@ Open `http://localhost:5173` in your browser.
 ## How to Play
 
 1. Each player opens the site and enters a username.
-2. You'll see the lobby with up to 4 player slots. Press **Ready**.
-3. When all 4 players are ready, a 3-second countdown starts — the game begins.
-4. 52 cards are dealt evenly and randomly (13 each for 4 players).
-5. **Click** cards to select them (lifted + color highlight). Press **Drop** to shed them into the center.
-6. Press **Pass** to skip — a 🤚 bubble appears above your hand.
-7. Press **Undo** to take back your most recent drop (only if nobody else has dropped since).
-8. Use **left/right arrow keys** to rearrange a selected card in your hand.
-9. The game ends when only one player has cards — that player is the **Loser**. The lobby resets for the next round.
-10. Players 5+ join as **spectators** — they see everything and can ready up for the next round.
+2. You'll see the lobby with 2–5 player slots. Press **Ready**.
+3. When all players are ready (min 2, max 5), a 3-second countdown starts — the game begins.
+4. 52 cards are dealt evenly among players and auto-sorted by rank.
+5. The player holding **3♦** goes first — the first play must include it.
+6. **Click** cards to select them (lifted + color highlight). Press **Drop** to play them.
+7. Combos must be valid: Single, Pair, Three of a Kind, Two Pair (sequential ranks), Four of a Kind, Straight, Flush, Full House, Straight Flush.
+8. To play, your combo must **beat** the current combo on the table (same type, higher rank/suit).
+9. **Bomb combos** — Four of a Kind and Straight Flush beat ANY combo. Straight Flush beats Four of a Kind.
+10. Press **Pass** to skip your turn. If all other players pass, a new round starts.
+11. **Drag and drop** cards to rearrange your hand.
+12. The game ends when only one player has cards — that player is the **Loser**.
+13. Players 6+ join as **spectators** — they can watch and join when a slot opens.
 
-There are **no enforced rules** — players self-police via conversation and the undo mechanic.
+Rank order (low→high): 3·4·5·6·7·8·9·10·J·Q·K·A·2
+Suit order (low→high): ♦·♣·♥·♠
 
 ## Tests
 
