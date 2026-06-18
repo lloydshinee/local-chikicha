@@ -82,6 +82,19 @@ describe('handleJoin', () => {
     const spectateEffect = effects.find((e) => e.type === 'SPECTATE');
     expect(spectateEffect).toBeDefined();
     expect((spectateEffect as any).players).toHaveLength(2);
+    expect(spectateEffect!.socketId).toBe('s3');
+  });
+
+  it('targets BROADCAST_LOBBY to spectator socket when joining mid-game', () => {
+    handleJoin(state, 's1', 'P1');
+    handleJoin(state, 's2', 'P2');
+    state.phase = 'PLAYING';
+    state.players[0].cards = makeCards([['3', 'diamonds']]);
+    state.players[1].cards = makeCards([['5', 'clubs']]);
+
+    const effects = handleJoin(state, 's3', 'Spec1');
+    const lobbyEffect = effects.find((e) => e.type === 'BROADCAST_LOBBY');
+    expect(lobbyEffect!.socketId).toBe('s3');
   });
 });
 

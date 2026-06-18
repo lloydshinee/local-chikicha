@@ -40,10 +40,17 @@ function executeEffects(effects: TableEffect[]) {
   for (const effect of effects) {
     switch (effect.type) {
       case 'BROADCAST_LOBBY':
-        io.emit('lobby_update', {
-          players: effect.players,
-          spectators: effect.spectators,
-        });
+        if (effect.socketId) {
+          io.to(effect.socketId).emit('lobby_update', {
+            players: effect.players,
+            spectators: effect.spectators,
+          });
+        } else {
+          io.emit('lobby_update', {
+            players: effect.players,
+            spectators: effect.spectators,
+          });
+        }
         break;
 
       case 'GAME_START':
@@ -58,11 +65,19 @@ function executeEffects(effects: TableEffect[]) {
         break;
 
       case 'SPECTATE':
-        io.emit('spectate', {
-          players: effect.players,
-          pile: effect.pile,
-          currentTurnPlayerId: effect.currentTurnPlayerId,
-        });
+        if (effect.socketId) {
+          io.to(effect.socketId).emit('spectate', {
+            players: effect.players,
+            pile: effect.pile,
+            currentTurnPlayerId: effect.currentTurnPlayerId,
+          });
+        } else {
+          io.emit('spectate', {
+            players: effect.players,
+            pile: effect.pile,
+            currentTurnPlayerId: effect.currentTurnPlayerId,
+          });
+        }
         break;
 
       case 'TURN_CHANGE':

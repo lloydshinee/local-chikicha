@@ -4,9 +4,9 @@ import type { Combo } from './rules';
 import { sortHand, hasThreeOfDiamonds } from './rules';
 
 export type TableEffect =
-  | { type: 'BROADCAST_LOBBY'; players: PlayerSummary[]; spectators: SpectatorSummary[] }
+  | { type: 'BROADCAST_LOBBY'; players: PlayerSummary[]; spectators: SpectatorSummary[]; socketId?: string }
   | { type: 'GAME_START'; perPlayer: PerPlayerGameStart[] }
-  | { type: 'SPECTATE'; players: OpponentSummary[]; pile: PileEntry[]; currentTurnPlayerId?: string }
+  | { type: 'SPECTATE'; players: OpponentSummary[]; pile: PileEntry[]; currentTurnPlayerId?: string; socketId?: string }
   | { type: 'TURN_CHANGE'; playerId: string; isNewRound: boolean; currentCombo: ComboSummary | null }
   | { type: 'CARD_DROPPED'; playerId: string; cards: Card[]; comboType: string; isFirstPlay: boolean }
   | { type: 'CARD_PASSED'; playerId: string }
@@ -204,14 +204,18 @@ export function handleJoin(state: GameState, playerId: string, username: string)
         currentTurnPlayerId: state.phase === 'PLAYING'
           ? state.players[state.currentTurnIndex]?.id
           : undefined,
+        socketId: playerId,
       });
     }
   }
+
+  const isSpectatorMidGame = !isActivePlayer && (state.phase === 'PLAYING' || state.phase === 'GAME_OVER');
 
   effects.push({
     type: 'BROADCAST_LOBBY',
     players: playerSummaries(state),
     spectators: spectatorSummaries(state),
+    socketId: isSpectatorMidGame ? playerId : undefined,
   });
 
   return effects;

@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import type { Card } from '../types';
 import { CardComponent } from './CardComponent';
 
@@ -7,11 +8,13 @@ interface PlayerHandProps {
   selectedIndices: Set<number>;
   playerColor?: string;
   isSelf: boolean;
+  isTurn?: boolean;
   onCardClick?: (index: number) => void;
   cardCount?: number;
   onArrange?: (fromIndex: number, toIndex: number) => void;
   scale?: number;
   overlap?: number;
+  faceDown?: boolean;
 }
 
 export function PlayerHand({
@@ -19,11 +22,13 @@ export function PlayerHand({
   selectedIndices,
   playerColor,
   isSelf,
+  isTurn = false,
   onCardClick,
   cardCount,
   onArrange,
   scale = 0.6,
   overlap = -100,
+  faceDown = false,
 }: PlayerHandProps) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
@@ -83,7 +88,16 @@ export function PlayerHand({
   if (cards.length === 0) return null;
 
   return (
-    <div className="flex justify-center" style={{ gap: '0px' }}>
+    <motion.div
+      animate={{
+        y: isTurn ? -8 : 0,
+        scale: isTurn ? 1.02 : 1,
+        filter: isTurn ? `drop-shadow(0 0 12px ${playerColor ?? '#3B82F6'}88)` : 'drop-shadow(0 0 0px transparent)',
+      }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+      className="flex justify-center"
+      style={{ gap: '0px' }}
+    >
       {cards.map((card, i) => {
         const isDragging = dragFromIndex === i;
         return (
@@ -121,11 +135,12 @@ export function PlayerHand({
               selected={selectedIndices.has(i)}
               playerColor={playerColor}
               scale={scale}
-              onClick={() => onCardClick?.(i)}
+              faceDown={faceDown}
+              onClick={faceDown ? undefined : () => onCardClick?.(i)}
             />
           </div>
         );
       })}
-    </div>
+    </motion.div>
   );
 }

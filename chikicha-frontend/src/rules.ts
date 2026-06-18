@@ -49,20 +49,39 @@ function countByRank(cards: Card[]): Map<Rank, Card[]> {
 }
 
 function isStraight(rankValues: number[]): boolean {
+  if (rankValues.length !== 5) return false;
   const sorted = [...rankValues].sort((a, b) => a - b);
-  for (let start = 0; start < 13; start++) {
-    const pattern = [
-      start,
-      (start + 1) % 13,
-      (start + 2) % 13,
-      (start + 3) % 13,
-      (start + 4) % 13,
-    ].sort((a, b) => a - b);
-    if (sorted.length === 5 && sorted.every((v, i) => v === pattern[i])) {
+
+  // Non-wrapping straights: 3-4-5-6-7 (start 0) through 10-J-Q-K-A (start 7)
+  for (let start = 0; start <= 7; start++) {
+    const pattern = [start, start + 1, start + 2, start + 3, start + 4];
+    if (sorted.every((v, i) => v === pattern[i])) {
       return true;
     }
   }
+
+  // Wheel: A-2-3-4-5 (rank values 11,12,0,1,2 → sorted 0,1,2,11,12)
+  const wheel = [0, 1, 2, 11, 12];
+  if (sorted.every((v, i) => v === wheel[i])) {
+    return true;
+  }
+
   return false;
+}
+
+function isWheel(rankValues: number[]): boolean {
+  const sorted = [...rankValues].sort((a, b) => a - b);
+  const wheel = [0, 1, 2, 11, 12];
+  return sorted.length === 5 && sorted.every((v, i) => v === wheel[i]);
+}
+
+function straightPrimary(cards: Card[]): { rank: Rank; suit: Suit } {
+  const rankValues = cards.map((c) => getRankValue(c.rank));
+  if (isWheel(rankValues)) {
+    const five = cards.find((c) => c.rank === '5')!;
+    return { rank: five.rank, suit: five.suit };
+  }
+  return highestCard(cards);
 }
 
 export function detectCombo(cards: Card[]): Combo | null {
@@ -104,7 +123,8 @@ export function detectCombo(cards: Card[]): Combo | null {
     if (sizes[0] === 2 && sizes[1] === 2) {
       const ranks = Array.from(rankGroups.keys());
       const rankVals = ranks.map((r) => getRankValue(r)).sort((a, b) => a - b);
-      if (rankVals[1] - rankVals[0] === 1) {
+      // Sequential ranks required; disallow Two Pair involving 2 as higher rank (A-A-2-2)
+      if (rankVals[1] - rankVals[0] === 1 && rankVals[1] !== getRankValue('2')) {
         const higherRank = RANK_ORDER[rankVals[1]];
         const higherCards = rankGroups.get(higherRank)!;
         const primary = highestCard(higherCards);
@@ -122,7 +142,7 @@ export function detectCombo(cards: Card[]): Combo | null {
     const straight = isStraight(rankValues);
 
     if (straight && allSameSuit) {
-      const primary = highestCard(cards);
+      const primary = straightPrimary(cards);
       return { type: 'STRAIGHT_FLUSH', primaryRank: primary.rank, primarySuit: primary.suit, cards };
     }
 
@@ -134,7 +154,7 @@ export function detectCombo(cards: Card[]): Combo | null {
     }
 
     if (straight) {
-      const primary = highestCard(cards);
+      const primary = straightPrimary(cards);
       return { type: 'STRAIGHT', primaryRank: primary.rank, primarySuit: primary.suit, cards };
     }
 

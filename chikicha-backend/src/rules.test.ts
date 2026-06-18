@@ -130,19 +130,17 @@ describe('detectCombo', () => {
       expect(combo?.primaryRank).toBe('A');
     });
 
-    it('detects wrap straight J-Q-K-A-2', () => {
-      const combo = detectCombo([
+    it('returns null for J-Q-K-A-2 (not a valid straight)', () => {
+      expect(detectCombo([
         c('hearts', 'J'),
         c('diamonds', 'Q'),
         c('clubs', 'K'),
         c('spades', 'A'),
         c('hearts', '2'),
-      ]);
-      expect(combo?.type).toBe('STRAIGHT');
-      expect(combo?.primaryRank).toBe('2');
+      ])).toBeNull();
     });
 
-    it('detects wrap straight A-2-3-4-5', () => {
+    it('detects wheel straight A-2-3-4-5 with primaryRank 5', () => {
       const combo = detectCombo([
         c('hearts', 'A'),
         c('diamonds', '2'),
@@ -151,7 +149,37 @@ describe('detectCombo', () => {
         c('hearts', '5'),
       ]);
       expect(combo?.type).toBe('STRAIGHT');
-      expect(combo?.primaryRank).toBe('2');
+      expect(combo?.primaryRank).toBe('5');
+    });
+
+    it('returns null for Q-K-A-2-3', () => {
+      expect(detectCombo([
+        c('hearts', 'Q'),
+        c('diamonds', 'K'),
+        c('clubs', 'A'),
+        c('spades', '2'),
+        c('hearts', '3'),
+      ])).toBeNull();
+    });
+
+    it('returns null for K-A-2-3-4', () => {
+      expect(detectCombo([
+        c('hearts', 'K'),
+        c('diamonds', 'A'),
+        c('clubs', '2'),
+        c('spades', '3'),
+        c('hearts', '4'),
+      ])).toBeNull();
+    });
+
+    it('returns null for 2-3-4-5-6', () => {
+      expect(detectCombo([
+        c('hearts', '2'),
+        c('diamonds', '3'),
+        c('clubs', '4'),
+        c('spades', '5'),
+        c('hearts', '6'),
+      ])).toBeNull();
     });
 
     it('returns null for non-sequential 5 cards', () => {
@@ -226,7 +254,7 @@ describe('detectCombo', () => {
       expect(combo?.primaryRank).toBe('7');
     });
 
-    it('returns straight flush for wrap same-suit', () => {
+    it('detects straight flush wheel A-2-3-4-5 with primaryRank 5', () => {
       const combo = detectCombo([
         c('clubs', 'A'),
         c('clubs', '2'),
@@ -235,6 +263,7 @@ describe('detectCombo', () => {
         c('clubs', '5'),
       ]);
       expect(combo?.type).toBe('STRAIGHT_FLUSH');
+      expect(combo?.primaryRank).toBe('5');
     });
   });
 
@@ -283,13 +312,11 @@ describe('detectCombo', () => {
       expect(combo?.primaryRank).toBe('Q');
     });
 
-    it('detects sequential two pair (A-A-2-2)', () => {
-      const combo = detectCombo([
+    it('returns null for A-A-2-2 two pair', () => {
+      expect(detectCombo([
         c('hearts', 'A'), c('diamonds', 'A'),
         c('clubs', '2'), c('spades', '2'),
-      ]);
-      expect(combo?.type).toBe('TWO_PAIR');
-      expect(combo?.primaryRank).toBe('2');
+      ])).toBeNull();
     });
 
     it('returns null for non-sequential two pair (7-7-9-9)', () => {
@@ -435,14 +462,15 @@ describe('canBeat', () => {
   });
 
   describe('straight comparison', () => {
-    it('J-Q-K-A-2 beats 10-J-Q-K-A', () => {
-      const high = detectCombo([
-        c('hearts', 'J'), c('diamonds', 'Q'), c('clubs', 'K'), c('spades', 'A'), c('hearts', '2'),
+    it('wheel A-2-3-4-5 loses to 3-4-5-6-7', () => {
+      const wheel = detectCombo([
+        c('hearts', 'A'), c('diamonds', '2'), c('clubs', '3'), c('spades', '4'), c('hearts', '5'),
       ])!;
       const low = detectCombo([
-        c('hearts', '10'), c('diamonds', 'J'), c('clubs', 'Q'), c('spades', 'K'), c('hearts', 'A'),
+        c('hearts', '3'), c('diamonds', '4'), c('clubs', '5'), c('spades', '6'), c('hearts', '7'),
       ])!;
-      expect(canBeat(high, low)).toBe(true);
+      expect(canBeat(wheel, low)).toBe(false);
+      expect(canBeat(low, wheel)).toBe(true);
     });
   });
 

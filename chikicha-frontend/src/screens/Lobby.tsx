@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../hooks/useSocket';
 import { useSound } from '../hooks/useSound';
+import { Handbook } from '../components/Handbook';
 import { MAX_PLAYERS } from '../game-types';
 import type { LobbyUpdateData, Card, GamePlayer } from '../types';
 
@@ -31,6 +32,7 @@ export function Lobby({ onGameStart, onSpectate }: Props) {
   const [ready, setReady] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [amSpectator, setAmSpectator] = useState(false);
+  const [showHandbook, setShowHandbook] = useState(false);
 
   const handleGameStartEvent = useCallback((data: { hand: Card[]; players: GamePlayer[]; myColor: string; currentTurnPlayerId?: string }) => {
     setCountdown(null);
@@ -107,6 +109,16 @@ export function Lobby({ onGameStart, onSpectate }: Props) {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-gray-50 to-gray-200 p-4 sm:p-8">
+      <div className="absolute top-3 right-3 sm:top-4 sm:right-4">
+        <button
+          onClick={() => setShowHandbook(true)}
+          className="text-2xl sm:text-3xl opacity-60 hover:opacity-100 transition-opacity"
+          title="Rules Book"
+        >
+          📖
+        </button>
+      </div>
+
       <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-6 sm:mb-8">chikicha</h1>
 
       <div className="mb-4 text-sm text-gray-500">
@@ -229,6 +241,7 @@ export function Lobby({ onGameStart, onSpectate }: Props) {
           </motion.div>
         </AnimatePresence>
       )}
+      {showHandbook && <Handbook onClose={() => setShowHandbook(false)} />}
     </div>
   );
 }

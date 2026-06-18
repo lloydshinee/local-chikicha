@@ -23,6 +23,13 @@ Triage vocabulary: `ready-for-agent` (can be worked), `in-progress`, `done`
 | 17 | Server-side Pusoy Dos rules | AFK | done | 15 |
 | 18 | Frontend Pusoy Dos UX | AFK | done | 15, 16 |
 | 19 | End-to-end play testing | HITL | in-progress | 17, 18 |
+| 20 | Player feedback fixes (handbook, queue, turn UX, spectator bug, hide cards, ace rules) | AFK | ready-for-agent | 11, 12, 15, 17 |
+| 20a | Fix spectator join kicking active players to lobby | AFK | ready-for-agent | — |
+| 20b | Fix Ace/straight rules (wrapping, wheel rank, AA-22 two pair) | AFK | ready-for-agent | — |
+| 20c | Remap opponent positions to counter-clockwise turn order | AFK | ready-for-agent | — |
+| 20d | Add obvious turn indicators (screen glow, hand lift, banner, chime) | AFK | ready-for-agent | — |
+| 20e | Add handbook/rules book modal | AFK | ready-for-agent | — |
+| 20f | Add hide-my-cards toggle (button + H key) | AFK | ready-for-agent | — |
 
 ## Dependency Graph
 

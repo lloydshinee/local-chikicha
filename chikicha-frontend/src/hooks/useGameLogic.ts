@@ -32,19 +32,19 @@ interface UseGameLogicInput {
 export function getOpponentPosition(index: number, total: number): 'top' | 'top-left' | 'top-right' | 'left' | 'right' {
   if (total === 1) return 'top';
   if (total === 2) {
-    if (index === 0) return 'left';
-    return 'right';
+    if (index === 0) return 'right';
+    return 'left';
   }
   if (total === 3) {
-    if (index === 0) return 'top';
-    if (index === 1) return 'left';
-    return 'right';
+    if (index === 0) return 'right';
+    if (index === 1) return 'top';
+    return 'left';
   }
   if (total === 4) {
-    if (index === 0) return 'top-left';
+    if (index === 0) return 'right';
     if (index === 1) return 'top-right';
-    if (index === 2) return 'left';
-    return 'right';
+    if (index === 2) return 'top-left';
+    return 'left';
   }
   return 'left';
 }
